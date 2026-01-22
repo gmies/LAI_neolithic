@@ -1,2 +1,2 @@
 # LAI_neolithic
-code for "Implications of local ancestry inference biases for understanding admixture and selection in Neolithic Europe"
+github code for "Local ancestry inference in imputed ancient DNA reveals method-dependent effects on demographic and selection inference"
