@@ -1,66 +1,207 @@
 #!/bin/bash
+# 7v3 Full LAI Pipeline
+# Updated 11/12/25 to run on varying sample sizes (7 neo x 3 hg) and compare ancestry correlations
+# Script runs all LAI methods (ancestry_hmm, flare, mosaic, rfmix, simplai) on a dataset.
+# Start this script from the results directory.
 
-#11/12/25 update to run on differing sample sizes of sources and compare GA correlations (and LA as well)
+set -e  # stop on error
 
-#script to run all lai methods on a dataset as an input 
-#start this script in the results section of a directory
-
-
-#script 6/11/25 to rerun with gens 35 for all methods 
-
+#------------------------
+# Load required modules
+#------------------------
 module load bcftools/1.20
 module load htslib
+module load plink/1.90Beta6.18
+module load R/4.2
+module load armadillo/12.8.4
+module load openblas
+module load Ancestry_HMM/1.0.2
+module load gatk
+module load jre/1.8.0_211
+module load python/3.8
 
-#things you add to the script and can edit when you run, since these will change
+#------------------------
+# User-editable inputs
+#------------------------
+vcf_dir="./data/vcfs"          # input VCF directory
+vcf_name="filt_davy.neo."      # prefix for VCFs (expect $vcf_name{chr}.vcf.gz)
+input_gen=35                   # generations, used in ancestry_hmm, flare, mosaic
+num_admixed=176                # number of admixed individuals
+admixed_samples="mneo_samples" # file with admixed sample IDs (in ./data/samples/)
+num_neo=7
+num_hg=3
 
-#put input of data here as an argument to be used in the script
-vcf_dir="/project/mathilab/gmies/neolithic_selection/allentoft_data/ancestry_prop/data/031825_filtering/davy_snps"
-#vcf names
-vcf_name="filt_davy.neo."
-#and within this dir should be vcfs that look like this: $vcf_name${chr}.vcf.gz
-
-# Set input_gen to the value you want, this is used in: ancestry_hmm
-input_gen=35 
-
-#set number of admixed individuals, used in: ancestry_hmm
-num_admixed=176
-
-#give name of sample file for admixed samples, in data/samples directory outside of results
-admixed_samples=mneo_samples
-
-
-#saved num ssa which is $num_admixed * 2
+# Derived variables
 num_admixed_count=$((num_admixed * 2))
 
-#set number of admixed individuals, used in: simplai
+#------------------------
+# Create working directories
+#------------------------
+mkdir -p 7v3/input_files
+cp ./data/input_files/* 7v3/input_files/
 
+# Subset HG and flare reference panel
+head -n $num_hg input_files/hg_keep_fam.txt > input_files/hg_keep_fam.txt
+head -n $((num_hg + num_neo)) input_files/flare.ref.panel > input_files/flare.ref.panel
 
-#hg is ceu and neo is yri
+#------------------------
+# Ancestry_HMM
+#------------------------
+mkdir -p 7v3/ancestry_hmm
+cd 7v3/ancestry_hmm
 
+KEEP_FILE="../input_files/mneo_keep_fam.txt"
+output_neo="neo_combined.frq"
+output_hg="hg_combined.frq"
+output_bim="combined.bim"
 
-#things you need to manually make and have in the input_files directory in results:
+> $output_neo
+> $output_hg
+> $output_bim
 
-#1. for ancestry hmm: the sample file which is a list of samples (admixed indivs) and then a col of 2 or ploidy #
-#sample file example: awk '{print $1, "2"}' /project/mathilab/gmies/neolithic_selection/1kg_runs/data/samples/asw_samples > ancestry_hmm_samples.txt
+for chr in {1..22}; do
+    # Generate bed files and allele frequencies
+    plink --vcf $vcf_dir/$vcf_name${chr}.vcf.gz --const-fid --make-bed --out full_dataset_chr${chr}
+    plink --bfile full_dataset_chr${chr} --keep ../input_files/neo_keep_fam.txt --freq counts --out ${chr}_neo.frq
+    plink --bfile full_dataset_chr${chr} --keep ../input_files/hg_keep_fam.txt --freq counts --out ${chr}_hg.frq
 
-#2. for ancestry hmm: for minor ancestry: neo_keep_fam.txt and for major ancestry: hg_keep_fam.txt which are 0 and then the sample names, and do the same for admixed as mneo_keep_fam.txt
-#examples: awk '{print "0", $1}' /project/mathilab/gmies/neolithic_selection/1kg_runs/data/samples/7_yri_samples > neo_keep_fam.txt
-		# awk '{print "0", $1}' /project/mathilab/gmies/neolithic_selection/1kg_runs/data/samples/48_ceu_samples > hg_keep_fam.txt
-		# awk '{print "0", $1}' /project/mathilab/gmies/neolithic_selection/1kg_runs/data/samples/asw_samples > mneo_keep_fam.txt
+    # Concatenate frequency files
+    if [ $chr -eq 1 ]; then
+        cat ${chr}_neo.frq.frq > $output_neo
+        cat ${chr}_hg.frq.frq > $output_hg
+    else
+        tail -n +2 ${chr}_neo.frq.frq >> $output_neo
+        tail -n +2 ${chr}_hg.frq.frq >> $output_hg
+    fi
 
-#3. for flare, make reference panel which is 7 neo and neo and then 48 hg (minor ancestry) and hg
-#example: awk '{print $1, "neo"}' /project/mathilab/gmies/neolithic_selection/1kg_runs/data/samples/7_yri_samples > flare.ref.panel
-		# awk '{print $1, "hg"}' /project/mathilab/gmies/neolithic_selection/1kg_runs/data/samples/48_ceu_samples >> flare.ref.panel
+    cat full_dataset_chr${chr}.bim >> $output_bim
 
+    # Admixed individual allele frequencies
+    count=1
+    while IFS= read -r line; do
+        keep_file="${count}_mneo_keep_fam.txt"
+        echo "$line" > "$keep_file"
+        plink --bfile "full_dataset_chr${chr}" --keep "$keep_file" --freq counts --out "${chr}_${count}_mneo"
+        rm "$keep_file"
+        ((count++))
+    done < "$KEEP_FILE"
+done
 
-#all scripts ran within will be here: /project/mathilab/gmies/neolithic_selection/1kg_runs/scripts/ and within their method directory
+# Concatenate and combine individual files
+Rscript ../../scripts/ancestry_hmm/concat.R
+Rscript ../../scripts/ancestry_hmm/combine_indivs.R $num_admixed
 
+# Clean intermediate files
+rm *.nosex *.log *_mneo.frq.counts
 
-#11/12/25 make input files:
+# Add cM distance to bim file
+Rscript ../../scripts/ancestry_hmm/add_bims_cm.R ./
 
-#/project/mathilab/gmies/neolithic_selection/allentoft_data/031825_rerun_filter_allen_LAI/results/11_12_25_run_samplesizes
+# Prepare input for ancestry_hmm
+Rscript ../../scripts/ancestry_hmm/make_input_file.R ./hg_concat.frq ./neo_concat.frq ./ mneo.counts final_allentoft_bim.bim $num_admixed output_hmm_run_file
 
-#want options of 7v7, 7v3, 7v1
+# Run ancestry_hmm
+ancestry_hmm -i output_hmm_run_file -s ../input_files/ancestry_hmm_samples.txt -a 2 0.2 0.8 -p 0 0 0.2 -p 1 $input_gen 0.8 -g --ne 10000
+
+# Generate ancestry_hmm output
+mkdir -p output
+Rscript ../../scripts/ancestry_hmm/output_average_ancestry_hmm.R ../ output_ancestry_hmm.txt
+cp ../output_ancestry_hmm.txt .
+
+# Sliding window Z-scores
+Rscript ../../scripts/sliding_bins_cov_zscores.R 1 ../output_ancestry_hmm.txt
+
+cd ../..
+
+#------------------------
+# Flare
+#------------------------
+mkdir -p 7v3/flare
+cd 7v3/flare
+
+# Extract admixed samples
+for i in {1..22}; do
+    bcftools view -S ../input_files/$admixed_samples -O z -o admixed.chr${i}.vcf.gz $vcf_dir/$vcf_name${i}.vcf.gz
+    tabix -p vcf all_samples.chr${i}.vcf.gz
+done
+
+# Run flare
+for chr in {1..22}; do
+    java -jar ../../flare/flare.jar \
+        ref="$vcf_dir/$vcf_name${chr}.vcf.gz" \
+        gt="admixed.chr${chr}.vcf.gz" \
+        map="../../flare/maps/plink.chr${chr}.GRCh37.map" \
+        ref-panel=../input_files/flare.ref.panel \
+        gen=$input_gen min-mac=10 \
+        out="${chr}_flare.out"
+done
+
+# Combine flare outputs
+for chr in {1..22}; do
+    tabix -p vcf ${chr}_flare.out.anc.vcf.gz
+    bcftools query -f '%CHROM\t%POS\t[%AN1]\t[%AN2]\n' ${chr}_flare.out.anc.vcf.gz >> by_indiv_flare_ancestry_output.txt
+done
+
+Rscript ../../scripts/flare/make_average.R by_indiv_flare_ancestry_output.txt output_flare.txt
+mkdir -p output
+mv output_flare.txt output/
+Rscript ../../scripts/sliding_bins_cov_zscores.R 1 output/output_flare.txt
+
+cd ../..
+
+#------------------------
+# Mosaic
+#------------------------
+mkdir -p 7v3/mosaic
+cd 7v3/mosaic
+
+# Prepare input files
+awk '{print $2, $1}' ../flare.ref.panel > sample.names
+awk '{print "mneo", $2}' ../input_files/mneo_keep_fam.txt >> sample.names
+awk '{print $1"\t"$2}' ../ancestry_hmm/output/output_ancestry_hmm.txt > keep_davy_snps.txt
+
+# SNP files per chromosome
+mkdir -p make_snp_files
+cd make_snp_files
+for chr in {1..22}; do
+    bcftools view -m2 -M2 -v snps -O v $vcf_dir/$vcf_name${chr}.vcf.gz | \
+        bcftools query -f '%ID\t%CHROM\t%POS\t%REF\t%ALT\n' > full_no_dist_snpfile.${chr}
+    grep -F -f ../keep_davy_snps.txt full_no_dist_snpfile.${chr} > davy_no_dist_snpfile.${chr}
+    awk '{print $1"\t"$2"\t0\t"$3"\t"$4"\t"$5}' davy_no_dist_snpfile.${chr} > ../snpfile.${chr}
+done
+cd ..
+
+# Make recombination map
+Rscript ../../scripts/mosaic/make_rates_file.R ./
+
+# Haplotypes
+mkdir -p haplo_files
+cd haplo_files
+awk '{print $2}' ../../input_files/neo_keep_fam.txt > neo_keep.txt
+awk '{print $2}' ../../input_files/hg_keep_fam.txt > hg_keep.txt
+
+for chr in {1..22}; do
+    # Admixed
+    bcftools view -m2 -M2 -v snps ../../flare/admixed.chr${chr}.vcf.gz | bcftools query -f '%CHROM\t%POS\t[%GT]\n' > mneo_intermediate_geno.${chr}
+    grep -F -f ../keep_davy_snps.txt mneo_intermediate_geno.${chr} > 2_mneo_intermediate_geno.${chr}
+    awk '{print $3}' 2_mneo_intermediate_geno.${chr} | sed 's/|//g' > ../mneogenofile.${chr}
+
+    # Neo
+    bcftools view -m2 -M2 -v snps -S neo_keep.txt -O v $vcf_dir/$vcf_name${chr}.vcf.gz | bcftools query -f '%CHROM\t%POS\t[%GT]\n' > neo_intermediate_geno.${chr}
+    grep -F -f ../keep_davy_snps.txt neo_intermediate_geno.${chr} > 2_neo_intermediate_geno.${chr}
+    awk '{print $3}' 2_neo_intermediate_geno.${chr} | sed 's/|//g' > ../neogenofile.${chr}
+
+    # HG
+    bcftools view -m2 -M2 -v snps -S hg_keep.txt -O v $vcf_dir/$vcf_name${chr}.vcf.gz | bcftools query -f '%CHROM\t%POS\t[%GT]\n' > hg_intermediate_geno.${chr}
+    grep -F -f ../keep_davy_snps.txt hg_intermediate_geno.${chr} > 2_hg_intermediate_geno.${chr}
+    awk '{print $3}' 2_hg_intermediate_geno.${chr} | sed 's/|//g' > ../hggenofile.${chr}
+done
+cd ../..
+
+# Run Mosaic
+Rscript ../../scripts/mosaic/mosaic_output_file.R ./MOSAIC_RESULTS/localanc_mneo_2way_*.RData ./MOSAIC_RESULTS/mneo_2way_*.RData output_mosaic.txt
+mkdir -p output
+cp output_mosaic.txt output/#want options of 7v7, 7v3, 7v1
 #first number is farmer, second is hg, originally was 7 v 48
 
 #num_hg = 48
