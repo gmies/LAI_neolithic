@@ -1,7 +1,7 @@
 # This script formats simpLAI output for downstream analysis:
 # correlation analysis, recombination analysis, and Z-score outlier detection.
 # Inputs: 
-#   1. simpLAI output file (recombination version)
+#   1. simpLAI output file 
 #   2. Number of chromosomes per admixed individual
 # Output:
 #   - simpLAI_final_output.txt with columns: CHR, POS, HGall
