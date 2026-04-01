@@ -1,6 +1,6 @@
 #!/bin/bash
 # 7v3 Full LAI Pipeline
-# Updated 11/12/25 to run on varying sample sizes (7 neo x 3 hg) and compare ancestry correlations
+#  run on varying sample sizes (7 neo x 3 hg) and compare ancestry correlations
 # Script runs all LAI methods (ancestry_hmm, flare, mosaic, rfmix, simplai) on a dataset.
 # Start this script from the results directory.
 
