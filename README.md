@@ -18,23 +18,23 @@ https://doi.org/10.5281/zenodo.19684580
 
 Quick start (figure reproduction)
  1. Clone repository
-git clone https://github.com/gmies/LAI_neolithic.git
-cd LAI_neolithic
+    git clone https://github.com/gmies/LAI_neolithic.git
+    cd LAI_neolithic
 
- 2. Download Zenodo data
- https://doi.org/10.5281/zenodo.19684580
+ 3. Download Zenodo data
+    https://doi.org/10.5281/zenodo.19684580
 
- 3. Place data as follows:
- final_figures_data      → ../final_figures_data
- final_sup_figures_data  → ../final_sup_figures_data
+ 5. Place data as follows:
+    final_figures_data      → ../final_figures_data
+    final_sup_figures_data  → ../final_sup_figures_data
 
- 4. Uncompress data
-gunzip final_figures_data.gz
-gunzip final_sup_figures_data.gz
+ 7. Uncompress data
+    gunzip final_figures_data.gz
+    gunzip final_sup_figures_data.gz
 
- 5. Generate figures
-Rscript figures/main_text_figures_scripts.Rmd
-Rscript figures/supplemental_figures.Rmd
+ 9. Generate figures
+     Rscript figures/main_text_figures_scripts.Rmd
+    Rscript figures/supplemental_figures.Rmd
 
 
 Repository structure:
