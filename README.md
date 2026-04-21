@@ -4,7 +4,7 @@ github code for "Local ancestry inference identifies robust selection signals in
 Data to generate main text figures, supplemental text figures, and LAI calls are available at 10.5281/zenodo.19684580. 
 
 
-Directories are as follow:
+Directories are as follows:
 
 figures:
   main_text_figures_scripts.Rmd is an R Markdown script you can run if you put data downloaded from directory final_figures_data on zenodo into ../final_figures_data from where the R Markdown file is and uncompress to regenerate all of the main text figures 
