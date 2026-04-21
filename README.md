@@ -42,43 +42,43 @@ Rscript figures/supplemental_figures.Rmd
 
 Repository structure
 
-figures/
+figures:
   Scripts to generate all manuscript figures
   - main_text_figures_scripts.Rmd
   - supplemental_figures.Rmd
   - Figure4C-E_tractsplot.py
 
-run_LAI/
+run_LAI:
   Pipelines for running local ancestry inference on discovery data
   - gen35_full_LAI_script.sh
   - posterior filtering scripts
   - configurations for sample sizes (7v1, 7v3, 7v7, 7v48)
 
-global_inference/
+global_inference:
   Scripts for global ancestry inference
   - ADMIXTURE
   - qpAdm
 
-LAI_analyses/
+LAI_analyses:
   Downstream analyses of LAI output
   - rm_LD_sliding_bins_cov_zscore.R
   - individual_ancestry_correlation.R
   - bins_correlation_matrix_names.R
   - run_rfmix_format.sh
 
-scripts/
+scripts:
   Utility scripts used across workflows
   - filter_ancestry_hmm_format.R
   - rfmix_global.R
   - rfmix_output_to_mean.R
 
-tract_analysis/
+tract_analysis:
   Scripts for tract-based analyses
   - TRACTS
   - TRACTOR
   - theoretical tract simulations
 
-X_chromosome/
+X_chromosome:
   X chromosome–specific analyses
   - LAI pipelines
   - tract length analysis (X_tractlengths.sh)
@@ -87,7 +87,7 @@ X_chromosome/
   - run_qpadm.sh
   - x_replication.sh
 
-replication/
+replication:
   Replication analyses of top signals
   - replication_1/ (ancestry_hmm; pseudohaploid data)
   - replication_2/ (RFMix; imputed data)
