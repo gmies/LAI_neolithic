@@ -28,8 +28,8 @@ Download Zenodo data:
 https://doi.org/10.5281/zenodo.19684580
 
 Place data as follows:
-final_figures_data      → ../final_figures_data
-final_sup_figures_data  → ../final_sup_figures_data
+- final_figures_data      → ../final_figures_data
+- final_sup_figures_data  → ../final_sup_figures_data
 
 Uncompress data:
 gunzip final_figures_data.gz
