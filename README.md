@@ -7,11 +7,10 @@ Mies & Mathieson
 Overview
 
 This repository contains code to:
-
-Run local ancestry inference (LAI) using multiple methods
-Perform downstream selection analyses
-Generate all main and supplemental figures in the manuscript
-Conduct replication and tract-based analyses
+1. Run local ancestry inference (LAI) using multiple methods
+2. Perform downstream selection analyses
+3. Generate all main and supplemental figures in the manuscript
+4. Conduct replication and tract-based analyses
 
 Processed data required to reproduce all figures and key results are available on Zenodo:
 https://doi.org/10.5281/zenodo.19684580
