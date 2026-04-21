@@ -1,46 +1,136 @@
 # LAI_neolithic
-github code for "Local ancestry inference identifies robust selection signals in ancient Neolithic populations" (Mies & Mathieson).
 
-Data to generate main text figures, supplemental text figures, and LAI calls are available at 10.5281/zenodo.19684580. 
+Code for:
+“Local ancestry inference identifies robust selection signals in ancient Neolithic populations”
+Mies & Mathieson
+
+Overview
+
+This repository contains code to:
+
+Run local ancestry inference (LAI) using multiple methods
+Perform downstream selection analyses
+Generate all main and supplemental figures in the manuscript
+Conduct replication and tract-based analyses
+
+Processed data required to reproduce all figures and key results are available on Zenodo:
+https://doi.org/10.5281/zenodo.19684580
 
 
-Directories are as follows:
+Quick start (figure reproduction)
+# 1. Clone repository
+git clone https://github.com/gmies/LAI_neolithic.git
+cd LAI_neolithic
 
-figures:
-  main_text_figures_scripts.Rmd is an R Markdown script you can run if you put data downloaded from directory final_figures_data on zenodo into ../final_figures_data from where the R Markdown file is and uncompress to regenerate all of the main text figures 
-  supplemental_figures.Rmd is an R Markdown script you can run if you put data downloaded from directory final_sup_figures_data on zenodo into ../final_sup_figures_data from where the R Markdown file is and uncompress to regenerate all of the supplemental text figures 
-  Figure4C-E_tractsplot.py is python script to generate Figure 4 panels C-E using tracts
+# 2. Download Zenodo data
+# https://doi.org/10.5281/zenodo.19684580
 
-global_inference: scripts to run admixture and qpadm on discovery dataset
+# 3. Place data as follows:
+# final_figures_data      → ../final_figures_data
+# final_sup_figures_data  → ../final_sup_figures_data
 
-run_LAI: scripts to run LAI on discovery data
-  .sh files for 7v1, 7v3, 7v7, and 7v48 source sample sizes (gen35_full_LAI_script.sh)
-  scripts to run posterior filtering 
+# 4. Uncompress data
+gunzip final_figures_data.gz
+gunzip final_sup_figures_data.gz
 
-  scripts: scripts called within run_LAI directory scripts to create intermediate files to run LAI methods
+# 5. Generate figures
+Rscript figures/main_text_figures_scripts.Rmd
+Rscript figures/supplemental_figures.Rmd
 
-LAI analyses: scripts to run analyses on LAI calls
-  run_rfmix_format.sh converts calls for each LAI method to RFMix format (RFMix format calls available on zenodo) 
-  rm_LD_sliding_bins_cov_zscore.R performs Z-score analysis on local ancestry averages for each method
-  individual_ancestry_correlation.R runs correlation of local ancestry averages for each method across individuals 
-  bins_correlation_matrix_names.R runs correlation of local ancestry averages across methods 
 
-  scripts:
-    filter_ancestry_hmm_format.R 
-    rfmix_global.R converts RFMix format LAI calls to global ancestry estimates for each individual
-    rfmix_output_to_mean.R converts RFMix format LAI calls to local ancestry averages
+Repository structure:
 
-tract_analysis: scripts to run TRACTS, TRACTOR, and running tract analysis with theoretical tracts
+figures/
+  Scripts to generate all manuscript figures
+  - main_text_figures_scripts.Rmd
+  - supplemental_figures.Rmd
+  - Figure4C-E_tractsplot.py
 
-X_chromosome: .sh scripts for running LAI for each method
-  X_tractlengths.sh to run tract length analysis for X chromosome
-  compre_sex.R
-  qq_plot scripts
-  run_admixture.sh
-  run_qpadm.sh
-  x_replication.sh 
+run_LAI/
+  Pipelines for running local ancestry inference on discovery data
+  - gen35_full_LAI_script.sh
+  - scripts for posterior filtering
+  - configurations for different sample sizes (7v1, 7v3, 7v7, 7v48)
 
-replication: 
-  replication_1: ancestry hmm scripts to run LAI on replication dataset 1 of psuedohaploid data
-  replication_2: rfmix scripts to run LAI on replication dataset 2 with imputed data
-  replication.R is a script to run replication analysis of top hits
+global_inference/
+  Scripts for global ancestry inference
+  - ADMIXTURE
+  - qpAdm
+
+LAI_analyses/
+  Downstream analyses of LAI output
+  - rm_LD_sliding_bins_cov_zscore.R
+  - individual_ancestry_correlation.R
+  - bins_correlation_matrix_names.R
+  - run_rfmix_format.sh
+
+scripts/
+  Utility scripts used across workflows
+  - filter_ancestry_hmm_format.R
+  - rfmix_global.R
+  - rfmix_output_to_mean.R
+
+tract_analysis/
+  Scripts for tract-based analyses
+  - TRACTS
+  - TRACTOR
+  - theoretical tract simulations
+
+X_chromosome/
+  X chromosome–specific analyses
+  - LAI pipelines
+  - tract length analysis (X_tractlengths.sh)
+  - qq plots and replication scripts
+  - run_admixture.sh
+  - run_qpadm.sh
+  - x_replication.sh
+
+replication/
+  Replication analyses of top signals
+  - replication_1/ (ancestry_hmm; pseudohaploid data)
+  - replication_2/ (RFMix; imputed data)
+  - replication.R
+
+
+Data availability
+Processed data for all figures and analyses are available on Zenodo:
+https://doi.org/10.5281/zenodo.19684580
+Due to size and access restrictions, raw genotype data are not included in this repository.
+
+
+Software and dependencies
+R (≥ 4.2)
+Required packages include (not exhaustive):
+ggplot2
+dplyr
+cowplot
+gridExtra
+
+Python (≥ 3.9)
+numpy
+pandas
+matplotlib
+
+
+External tools
+The following software is required to reproduce full analyses:
+
+RFMix
+ADMIXTURE
+qpAdm (AdmixTools)
+ancestry_hmm
+TRACTS / TRACTOR
+simpLAI
+Mosaic
+
+These must be installed separately and available in your environment.
+
+
+Citation
+If you use this code or data, please cite:
+Mies & Mathieson (2026)
+Local ancestry inference identifies robust selection signals in ancient Neolithic populations
+
+
+Contact
+For questions or issues, please open a GitHub issue or contact the authors.
