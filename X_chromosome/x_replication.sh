@@ -4,6 +4,8 @@
 #start this script in the results section of a directory
 
 
+#r scripts are in run_LAI/scripts directory in github
+
 #things you add to the script and can edit when you run, since these will change
 
 #put input of data here as an argument to be used in the script
