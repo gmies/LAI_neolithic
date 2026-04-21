@@ -82,3 +82,49 @@ python analyze_rfmix_tracts_by_sex.py \
   --chr-start 23 \
   --chr-end 23
 
+
+#qq plots:
+
+python qq_plot_male_vs_female.py \
+  --inputs \
+    rfmix_chr23_sex_tracts_by_sex.txt \
+    simplai_chr23_sex_tracts_by_sex.txt \
+    mosaic_chr23_sex_tracts_by_sex.txt \
+    ancestryhmm_chr23_sex_tracts_by_sex.txt \
+  --labels \
+    "RFMix" \
+    "simpLAI" \
+    "Mosaic" \
+    "Ancestry HMM" \
+  --output qq_male_vs_female_2x2.png
+
+
+
+python qq_plot_male_vs_female_by_ancestry.py \
+  --inputs \
+    rfmix_chr23_sex_tracts_by_sex_and_ancestry.txt \
+    simplai_chr23_sex_tracts_by_sex_and_ancestry.txt \
+    mosaic_chr23_sex_tracts_by_sex_and_ancestry.txt \
+    ancestryhmm_chr23_sex_tracts_by_sex_and_ancestry.txt \
+  --labels \
+    "RFMix" \
+    "simpLAI" \
+    "Mosaic" \
+    "Ancestry HMM" \
+  --output-prefix qq_chr23
+
+
+
+python qq_plot_farmer_vs_hg.py \
+  --inputs \
+    ../ancestry_hmm_7v7/hap/ancestryhmm_chr23_tract_lengths_data.txt \
+    ../simplai/simplai_chr23_tract_lengths_data.txt \
+    ../rfmix/rfmix_chr23_tract_lengths_data.txt \
+    ../mosaic_7v7/mosaic_chr23_tract_lengths_data.txt \
+  --labels \
+    "Ancestry HMM" \
+    "simpLAI" \
+    "RFMix" \
+    "Mosaic" \
+  --output qq_chr23_farmer_vs_hg_2x2.png
+
