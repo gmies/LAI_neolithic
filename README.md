@@ -76,7 +76,7 @@ tract_analysis:
   Scripts for tract-based analyses
   - TRACTS
   - TRACTOR
-  - theoretical tract simulations
+  - theoretical tract length distributions
 
 X_chromosome:
   X chromosome–specific analyses
