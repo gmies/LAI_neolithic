@@ -50,9 +50,9 @@ figures:
 
 run_LAI:
   Pipelines for running local ancestry inference on discovery data
-  - gen35_full_LAI_script.sh
+  - gen35_full_LAI_script.sh (7v48)
   - posterior filtering scripts
-  - configurations for sample sizes (7v1, 7v3, 7v7, 7v48)
+  - configurations for source sample sizes (7v1, 7v3, 7v7)
 
 global_inference:
   Scripts for global ancestry inference
