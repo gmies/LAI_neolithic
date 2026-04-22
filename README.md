@@ -1,7 +1,7 @@
 # LAI_neolithic
 
 Code for:
-“Local ancestry inference identifies robust selection signals in ancient Neolithic populations”
+“Local ancestry inference identifies robust evidence of selection in Neolithic Europe”
 Mies & Mathieson
 
 
@@ -140,7 +140,7 @@ Citation
 If you use this code or data, please cite:
 
 Mies & Mathieson (2026)
-Local ancestry inference identifies robust selection signals in ancient Neolithic populations
+Local ancestry inference identifies robust evidence of selection in Neolithic Europe
 
 
 Contact
