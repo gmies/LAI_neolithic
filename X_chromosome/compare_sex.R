@@ -115,23 +115,13 @@ plot_methods <- function(df, output_file) {
 
   ggsave(output_file, p, width = 9, height = 7, dpi = 300)
 }
-
  
-# OUTPUT 1: WITH FLARE
+# OUTPUT:
  
 plot_methods(
   combined_df,
-  output_file = "X_methods_with_flare.pdf"
+  output_file = "X_methods.pdf"
 )
 
- 
-# OUTPUT 2: WITHOUT FLARE
- 
-plot_methods(
-  combined_df %>% filter(method != "flare"),
-  output_file = "X_methods_no_flare.pdf"
-)
-
-message("Plots saved:")
-message("  - X_methods_with_flare.pdf")
-message("  - X_methods_no_flare.pdf")
+message("Plot saved:")
+message("  - X_methods.pdf")
