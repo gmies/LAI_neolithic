@@ -139,7 +139,7 @@ Citation
 
 If you use this code or data, please cite:
 
-Mies & Mathieson (2026)
+Mies & Mathieson, 
 Local ancestry inference identifies robust evidence of selection in Neolithic Europe
 
 
