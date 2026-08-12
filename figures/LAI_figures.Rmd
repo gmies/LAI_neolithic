@@ -1,1 +1,6136 @@
+---
+title: "LAI_figures_revision"
+output: html_document
+date: "2026-08-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+
+#revision figures / plotting for Figures 1-4 and supplementary Figures 1-17
+
+#Figure 1:
+
+```{r}
+
+# Figure 1 
+
+library(ggplot2)
+library(dplyr)
+library(readxl)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(patchwork)
+library(scales)
+
+
+# -------- Load ancestry + date data --------
+
+dates <- read.table(
+  "../final_figures_data/allentoft_dates_041725.txt",
+  header = TRUE,
+  sep = "\t",
+  stringsAsFactors = FALSE
+)
+
+ancestry <- read.table(
+  "../final_figures_data/qpadm_output_global_ancestry.txt",
+  header = TRUE
+)
+
+colnames(dates) <- c("ID", "Age")
+colnames(ancestry) <- c("ID", "Ancestry")
+
+dates$Age <- as.numeric(gsub(",", "", dates$Age))
+
+main_data <- merge(dates, ancestry, by = "ID")
+main_data$Group <- "ADMIXED"
+
+
+# -------- Reference panel --------
+
+panel <- read.table(
+  "../final_figures_data/flare.ref.panel",
+  header = FALSE,
+  stringsAsFactors = FALSE
+)
+colnames(panel) <- c("ID", "Label")
+
+panel_with_dates <- merge(panel, dates, by = "ID")
+
+panel_with_dates$Ancestry <- ifelse(panel_with_dates$Label == "neo", 0,
+                                    ifelse(panel_with_dates$Label == "hg", 1, NA))
+
+panel_with_dates$Group <- ifelse(panel_with_dates$Label == "neo", "FARMER",
+                                 ifelse(panel_with_dates$Label == "hg", "HG", NA))
+
+panel_with_dates <- panel_with_dates[!is.na(panel_with_dates$Group), ]
+
+
+# -------- Combine --------
+
+combined <- rbind(
+  main_data[, c("ID", "Age", "Ancestry", "Group")],
+  panel_with_dates[, c("ID", "Age", "Ancestry", "Group")]
+)
+
+admixed_data <- combined %>% filter(Group == "ADMIXED")
+
+
+# -------- Map sample metadata --------
+
+allentoft_excel_data <- read_excel(
+  "../final_figures_data/allentoft_full_data.xlsx",
+  skip = 10
+)
+
+admixed_samples <- read.table(
+  "../final_figures_data/mneo_keep_fam.txt"
+)$V2
+
+source_samples <- read.table(
+  "../final_figures_data/flare.ref.panel"
+)
+
+neo_samples <- source_samples$V1[source_samples$V2 == "neo"]
+hg_samples  <- source_samples$V1[source_samples$V2 == "hg"]
+
+filtered_data <- allentoft_excel_data %>%
+  filter(`Individual ID` %in% c(admixed_samples, neo_samples, hg_samples)) %>%
+  mutate(
+    Group = case_when(
+      `Individual ID` %in% admixed_samples ~ "ADMIXED",
+      `Individual ID` %in% neo_samples ~ "FARMER",
+      `Individual ID` %in% hg_samples ~ "HG"
+    ),
+    latitude = as.numeric(Latitude),
+    longitude = as.numeric(Longitude)
+  ) %>%
+  filter(!is.na(latitude))
+
+
+# -------- World map --------
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+
+
+# Define purple gradient
+purple_gradient <- scales::gradient_n_pal(c("#dcd6f7", "#4b0082"))
+
+# Scale and invert age for color gradient
+admixed_data <- admixed_data %>%
+  mutate(
+    Age_scaled = (Age - min(Age)) / (max(Age) - min(Age)),
+    Age_scaled_inv = 1 - Age_scaled,
+    color_by_age = purple_gradient(Age_scaled_inv)
+  )
+
+# Stronger colors for groups
+colors <- c(
+  "FARMER" = "#E69F00",
+  "HG"     = "#009E73"
+)
+
+# Merge age into map data
+filtered_data <- filtered_data %>%
+  left_join(admixed_data %>% select(ID, Age),
+            by = c("Individual ID" = "ID")) %>%
+  mutate(
+    shape_final = case_when(
+      Group == "FARMER" ~ 15,
+      Group == "HG" ~ 17,
+      Group == "ADMIXED" ~ 16,
+      TRUE ~ 16
+    )
+  )
+
+# Base theme
+base_theme <- theme_classic() + 
+  theme(
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10),
+    legend.text = element_text(size = 8),
+    legend.title = element_text(size = 9, face = "plain")
+  )
+
+
+# -------- Panel A --------
+
+p1 <- ggplot(data = world) +
+  geom_sf(fill = "gray80", color = "white") +
+  
+  # FARMER
+  geom_point(
+    data = filtered_data %>% filter(Group == "FARMER"),
+    aes(x = longitude, y = latitude, shape = "Farmer"),
+    color = "#E69F00",
+    size = 2,   alpha = 0.7 
+  ) +
+  
+  # HG
+  geom_point(
+    data = filtered_data %>% filter(Group == "HG"),
+    aes(x = longitude, y = latitude, shape = "Hunter-Gatherer"),
+    color = "#009E73",
+    size = 2,   alpha = 0.7 
+  ) +
+  
+    # ADMIXED (gradient)
+  geom_point(
+    data = filtered_data %>% filter(Group == "ADMIXED"),
+    aes(x = longitude, y = latitude, color = Age),
+    shape = 16,
+    size = 2,   alpha = 0.85 
+  ) +
+  
+  
+  scale_color_gradient(
+  low = "#dcd6f7",
+  high = "#4b0082",
+  name = "Date (years BP)",
+  guide = guide_colorbar(
+    title.theme = element_text(size = 9, margin = margin(t = 25))
+  )
+) +
+  
+  # the legend for Farmer/HG
+  scale_shape_manual(
+  values = c("Farmer" = 15, "Hunter-Gatherer" = 17),
+  name = NULL,
+  guide = guide_legend(
+    override.aes = list(
+      color = c("#E69F00", "#009E73")
+    )
+  )
+) +
+  
+  coord_sf(xlim = c(-11, 37), ylim = c(35, 61)) +
+  xlab("Longitude") + ylab("Latitude") +
+  base_theme +
+theme(
+  legend.position = "right",
+  legend.box = "vertical"
+)
+  
+
+
+# -------- Panel B --------
+
+p2 <- ggplot(admixed_data, aes(x = Age, y = Ancestry, color = Age)) +
+  geom_point(size = 2,   alpha = 0.85) +
+  scale_x_reverse() +
+  scale_color_gradient(
+    low = "#dcd6f7",
+    high = "#4b0082",
+    name = "Date (years BP)"
+  ) +
+  base_theme +
+  labs(
+    x = "Average Date (years BP)",
+    y = "Hunter-Gatherer Ancestry"
+  ) +
+theme(
+    legend.position = "none",
+    plot.margin = margin(5, 5, 1, 5)  
+  )
+
+
+# -------- Combine + save --------
+
+final_plot <- (p1 | p2) +
+  plot_annotation(
+    tag_levels = "A",
+    theme = theme(
+      plot.tag = element_text(face = "bold", size = 12),
+      plot.margin = margin(0, 0, -20, 0)
+    )
+  ) &
+  theme(plot.tag.position = c(0.06, 1.2))
+
+
+ggsave(
+  "revision_Figure1.pdf",
+  final_plot,
+  width = 6.5,
+  height = 3
+)
+
+
+```
+
+#Figure 2:
+
+```{r}
+# Load required libraries
+library(tidyverse)
+library(ggplot2)
+library(cowplot)
+
+
+
+colors <- c(
+  FARMER = "#808080",
+  HG = "#808080",
+  ADMIXED = "#9467bd",
+  simplai = "#e377c2",
+  ancestry_hmm = "#1f77b4",
+  ancestry_paths = "#ff7f0e",
+  mosaic = "#2ca02c",
+  rfmix = "#d62728",
+  recombmix = "#B8860B",   # dark goldenrod
+  gnomix = "#8B4513"       # saddle brown
+)
+
+
+# Number of datasets
+num_datasets <- as.numeric(9)
+
+# Paths to each method's ancestry file
+dataset_paths <- c("../final_figures_data/7v3_admixture.txt", "../final_figures_data/7v3_mosaic_global.txt", "../final_figures_data/ancestry_paths_output_global_ancestry.txt", "../final_figures_data/7v7_ancestry_hmm_global.txt", "../final_figures_data/7v7_rfmix_global_ancestry.txt","../final_figures_data/7v3_simplai_output_global_ancestry.txt", "../final_figures_data/qpadm_output_global_ancestry.txt", "../final_figures_data/recombmix_output_global_ancestry.txt", "../final_figures_data/gnomix_output_global_ancestry.txt")
+
+
+# Method names
+dataset_names <- c("imputed_admixture", "mosaic", "ancestry_paths", "ancestry_hmm", "rfmix", "simplai", "qpadm", "recombmix", "gnomix")
+
+# Function to read and return data with method name
+read_and_process <- function(file_path, method_name) {
+  df <- read.table(file_path, header = TRUE)
+  colnames(df) <- c("sample", paste0("global_ancestry_", method_name))
+  return(df)
+}
+
+# Read all datasets into a list
+dataset_list <- list()
+
+for (i in 1:num_datasets) {
+  dataset_list[[i]] <- read_and_process(dataset_paths[i], dataset_names[i])
+}
+
+# Combine all into one dataframe, spread by method
+combined_df <- reduce(dataset_list, function(x, y) full_join(x, y, by = "sample"))
+
+# Just select the columns we want (they already have the right names)
+combined_df <- combined_df %>%
+  select(sample, starts_with("global_ancestry_"))
+
+# Drop any rows with NA values
+combined_df <- na.omit(combined_df)
+
+# A named vector to rename methods for plot titles
+rename_methods <- c(
+  imputed_admixture = "ADMIXTURE (7v3)",
+  rfmix = "RFMix (7v7, 0.9)",
+  simplai = "simpLAI (7v3)",
+  mosaic = "Mosaic (7v3, 0.9)",
+  ancestry_paths = "AncestralPaths (7v48)",
+  ancestry_hmm = "Ancestry HMM (7v7, 0.9)",
+  qpadm = "qpAdm",
+  recombmix = "Recomb-Mix (7v7)",
+  gnomix = "Gnomix (7v7)"
+)
+
+# Set base font size scaled to new size (was 16 before, let's reduce slightly)
+base_font_size <- 10
+
+qpAdm_vals <- combined_df[["global_ancestry_qpadm"]]
+
+#----------------------------------------------------------
+# Compute RMSE of each method vs qpAdm
+#----------------------------------------------------------
+
+methods_to_score <- setdiff(dataset_names, "qpadm")
+
+rmse_table <- map_dfr(methods_to_score, function(method) {
+  y_vals <- combined_df[[paste0("global_ancestry_", method)]]
+  rmse_val <- sqrt(mean((y_vals - qpAdm_vals)^2, na.rm = TRUE))
+  data.frame(
+    method = method,
+    method_label = rename_methods[[method]],
+    RMSE = rmse_val
+  )
+})
+
+# Order: ADMIXTURE first (as before), then remaining methods lowest -> highest RMSE
+admixture_row <- rmse_table %>% filter(method == "imputed_admixture")
+other_rows <- rmse_table %>% filter(method != "imputed_admixture") %>% arrange(RMSE)
+
+rmse_table_ordered <- bind_rows(admixture_row, other_rows)
+
+# Print to console
+print(rmse_table_ordered)
+
+# Write out the RMSE table
+write.csv(
+  rmse_table_ordered %>% select(Method = method_label, RMSE),
+  file = "revision_Figure2_RMSE_table.csv",
+  row.names = FALSE
+)
+
+# Plot order follows the same ordering as the RMSE table
+plot_order <- rmse_table_ordered$method
+
+#----------------------------------------------------------
+# Build plots in RMSE order
+#----------------------------------------------------------
+
+plots <- list()
+
+for (method in plot_order) {
+    y_vals <- combined_df[[paste0("global_ancestry_", method)]]
+
+    df_plot <- data.frame(qpadm = qpAdm_vals, method_val = y_vals)
+
+    r_val <- cor(df_plot$qpadm, df_plot$method_val, use = "complete.obs")
+    r_text <- sprintf("R = %.2f", r_val)
+    
+    #delta:
+     delta_val <- mean(abs(df_plot$method_val - df_plot$qpadm), na.rm = TRUE)
+    delta_text <- sprintf("Δ = %.2f", delta_val)
+    
+        #slope of best-fit line
+    fit <- lm(method_val ~ qpadm, data = df_plot)
+    beta_val <- coef(fit)[2]
+    beta_text <- sprintf("β = %.2f", beta_val)
+
+    method_label <- rename_methods[[method]]
+    if (is.null(method_label)) method_label <- tools::toTitleCase(gsub("_", " ", method))
+
+    point_color <- if (method == "imputed_admixture") {
+      colors["ADMIXED"]
+    } else {
+      colors[[method]] %||% "steelblue"
+    }
+
+    p <- ggplot(df_plot, aes(x = qpadm, y = method_val)) +
+      geom_point(alpha = 0.8, color = point_color, size = 2) +  # adjust point size if needed
+      geom_smooth(method = "lm", color = "firebrick", se = FALSE, linewidth = 1.2) +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black", linewidth = 1) +
+          annotate("text",
+             x = 0.00, y = 0.60,
+             label = bquote(R == .(round(r_val, 2))),
+             hjust = 0, size = 4, fontface = "bold") +
+    annotate("text",
+             x = 0.00, y = 0.50,
+             label = bquote(beta == .(round(beta_val, 2))),
+             hjust = 0, size = 4, fontface = "bold") +
+    annotate("text",
+             x = 0.30, y = 0.08,
+             label = bquote(Delta == .(round(delta_val, 2))),
+             hjust = 0, size = 4, fontface = "bold") +
+      
+      labs(
+        x = "qpAdm",
+        y = "Global Ancestry",
+        title = method_label
+      ) +
+      theme_minimal(base_size = base_font_size) +
+      theme(
+        panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
+        plot.title = element_text(face = "bold", size = base_font_size + 1, hjust = 0.5, margin = margin(b = 10)),
+        axis.title = element_text(size = base_font_size + 2),
+        axis.text = element_text(size = base_font_size, color = "black"),
+        plot.background = element_rect(fill = "white", color = NA),
+        panel.background = element_rect(fill = "white", color = NA)
+      ) +
+      coord_cartesian(xlim = c(0, 0.45), ylim = c(0, 0.7))
+
+    plots[[length(plots) + 1]] <- p
+}
+
+# Save plot grid as PDF with new size
+# 8 methods plotted, ordered by RMSE (ADMIXTURE first) -> 4 columns x 2 rows
+final_plot <- plot_grid(plotlist = plots, ncol = 4, labels = NULL)
+
+ggsave("revision_Figure2.pdf", final_plot, width = 9, height = 5, dpi = 300)
+```
+
+
+#Figure 3:
+
+```{r}
+library(tidyverse)
+library(cowplot)
+
+# ============================================================
+# COLORS (same palette used in Figure 2)
+# ============================================================
+colors <- c(
+  FARMER = "#808080",
+  HG = "#808080",
+  ADMIXED = "#9467bd",
+  simplai = "#e377c2",
+  ancestry_hmm = "#1f77b4",
+  ancestry_paths = "#ff7f0e",
+  mosaic = "#2ca02c",
+  rfmix = "#d62728",
+  recombmix = "#B8860B",   # dark goldenrod
+  gnomix = "#8B4513"       # saddle brown
+)
+
+# ============================================================
+# STEP 1: Recompute the Figure 2 RMSE-vs-qpAdm ordering.
+# This is what decides panel order in the new Figure 3 -- we
+# reuse it exactly rather than re-deriving/hardcoding it, so the
+# two figures can never drift out of sync if the underlying data
+# changes.
+# ============================================================
+num_datasets <- 9
+
+dataset_paths <- c(
+  "../final_figures_data/7v3_admixture.txt",
+  "../final_figures_data/7v3_mosaic_global.txt",
+  "../final_figures_data/ancestry_paths_output_global_ancestry.txt",
+  "../final_figures_data/7v7_ancestry_hmm_global.txt",
+  "../final_figures_data/7v7_rfmix_global_ancestry.txt",
+  "../final_figures_data/7v3_simplai_output_global_ancestry.txt",
+  "../final_figures_data/qpadm_output_global_ancestry.txt",
+  "../final_figures_data/recombmix_output_global_ancestry.txt",
+  "../final_figures_data/gnomix_output_global_ancestry.txt"
+)
+
+dataset_names <- c("imputed_admixture", "mosaic", "ancestry_paths", "ancestry_hmm",
+                    "rfmix", "simplai", "qpadm", "recombmix", "gnomix")
+
+read_and_process <- function(file_path, method_name) {
+  df <- read.table(file_path, header = TRUE)
+  colnames(df) <- c("sample", paste0("global_ancestry_", method_name))
+  return(df)
+}
+
+dataset_list <- list()
+for (i in 1:num_datasets) {
+  dataset_list[[i]] <- read_and_process(dataset_paths[i], dataset_names[i])
+}
+
+combined_df <- reduce(dataset_list, function(x, y) full_join(x, y, by = "sample")) %>%
+  select(sample, starts_with("global_ancestry_")) %>%
+  na.omit()
+
+qpAdm_vals <- combined_df[["global_ancestry_qpadm"]]
+methods_to_score <- setdiff(dataset_names, "qpadm")
+
+rmse_table <- map_dfr(methods_to_score, function(method) {
+  y_vals <- combined_df[[paste0("global_ancestry_", method)]]
+  rmse_val <- sqrt(mean((y_vals - qpAdm_vals)^2, na.rm = TRUE))
+  data.frame(method = method, RMSE = rmse_val)
+})
+
+# Same logic as Figure 2: ADMIXTURE first, everything else by
+# ascending RMSE. In Figure 2, admixture_row becomes a scatter
+# panel; here it becomes the legend panel instead.
+other_rows <- rmse_table %>% filter(method != "imputed_admixture") %>% arrange(RMSE)
+
+# This is the panel order for the new Figure 3 (after the key).
+# It now includes ancestry_paths, since it's scored in Figure 2
+# just like every other method.
+focal_order <- other_rows$method
+
+print(focal_order)
+
+# ============================================================
+# STEP 2: Load local-ancestry correlation matrices
+# ============================================================
+cor_10kb    <- read.table("../final_figures_data/LA_correlation_matrix_binsize_10kb.txt")
+cor_100kb   <- read.table("../final_figures_data/LA_correlation_matrix_binsize_100kb.txt")
+cor_1000kb  <- read.table("../final_figures_data/LA_correlation_matrix_binsize_1000kb.txt")
+cor_10000kb <- read.table("../final_figures_data/LA_correlation_matrix_binsize_10000kb.txt")
+
+cor_10000kb[cor_10000kb < 0] <- 0
+
+bin_sizes <- c(10, 100, 1000, 10000)
+cor_list <- list("10" = cor_10kb, "100" = cor_100kb, "1000" = cor_1000kb, "10000" = cor_10000kb)
+
+# All 7 methods that appear as rows/cols in the correlation
+# matrices -- ancestry_paths was already here as a comparison
+# column, it just never got its own focal panel before.
+cor_methods <- c("rfmix", "ancestry_paths", "ancestry_hmm", "simplai", "mosaic", "gnomix", "recombmix")
+colors_filtered <- colors[names(colors) %in% cor_methods]
+
+# Labels reused from Figure 2's rename_methods, trimmed to the
+# methods that live in this figure.
+label_map <- c(
+  rfmix          = "RFMix (7v7)",
+  mosaic         = "Mosaic (7v3)",
+  simplai        = "simpLAI (7v3)",
+  ancestry_hmm   = "Ancestry HMM (7v7)",
+  gnomix         = "Gnomix (7v7)",
+  recombmix      = "Recomb-Mix (7v7)",
+  ancestry_paths = "AncestralPaths (7v48)"
+)
+
+# ============================================================
+# STEP 3: Helper to build the correlation-vs-binsize data for
+# one focal method (unchanged from the original script)
+# ============================================================
+build_corr_df <- function(focal_method) {
+  focal_name <- sub("^AVG_", "", focal_method)
+  other_methods <- setdiff(names(colors_filtered), focal_name)
+
+  result <- data.frame()
+
+  for (size in bin_sizes) {
+    cor_mat <- cor_list[[as.character(size)]]
+    req_cols <- paste0("AVG_", other_methods)
+
+    missing_cols <- setdiff(req_cols, colnames(cor_mat))
+    if (length(missing_cols) > 0) {
+      stop(paste("Missing columns:", paste(missing_cols, collapse = ", ")))
+    }
+
+    row_vals <- as.numeric(cor_mat[focal_method, req_cols])
+
+    df <- data.frame(
+      Method = other_methods,
+      Correlation = row_vals,
+      BinSize = size,
+      Focal = focal_name
+    )
+
+    result <- rbind(result, df)
+  }
+
+  return(result)
+}
+
+# ============================================================
+# STEP 4: Build one standalone panel per focal method (legend
+# off), styled to match the Figure 2 panels
+# ============================================================
+base_font_size <- 10
+
+build_focal_plot <- function(focal_bare_name) {
+  focal_method <- paste0("AVG_", focal_bare_name)
+  df <- build_corr_df(focal_method)
+  df$Method <- factor(df$Method, levels = cor_methods)
+
+  ggplot(df, aes(x = BinSize, y = Correlation, color = Method)) +
+    geom_point(size = 2) +
+    geom_line(linewidth = 1) +
+    scale_color_manual(values = colors, breaks = cor_methods, labels = label_map[cor_methods]) +
+    scale_x_log10(
+      breaks = bin_sizes,
+      labels = scales::trans_format("log10", scales::math_format(10^.x)),
+      expand = expansion(mult = c(0.05, 0.12))
+    ) +
+    ylim(-0.05, 0.7) +
+    labs(x = "Bin Size (kb)", y = "Pearson Correlation", title = label_map[[focal_bare_name]]) +
+    theme_minimal(base_size = base_font_size) +
+    theme(
+      legend.position = "none",
+      panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
+      plot.title = element_text(face = "bold", size = base_font_size + 1, hjust = 0.5, margin = margin(b = 10)),
+      axis.title = element_text(size = base_font_size + 2),
+      axis.text = element_text(size = base_font_size, color = "black"),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    )
+}
+
+focal_plots <- lapply(focal_order, build_focal_plot)
+
+# ============================================================
+# STEP 5: Build the "key" panel that replaces the ADMIXTURE slot
+# ============================================================
+legend_df <- data.frame(
+  Method = factor(cor_methods, levels = cor_methods),
+  BinSize = bin_sizes[1],
+  Correlation = 0
+)
+
+legend_source <- ggplot(
+  legend_df,
+  aes(x = BinSize, y = Correlation, color = Method)
+) +
+  geom_point(size = 3) +
+  geom_line(aes(group = Method), linewidth = 1.2) +
+  scale_color_manual(values = colors, breaks = cor_methods, labels = label_map[cor_methods], name = NULL) +
+  theme_minimal(base_size = base_font_size) +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = base_font_size)
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 3, linewidth = 1.2)))
+
+legend_grob <- get_legend(legend_source)
+key_plot <- ggdraw() + draw_grob(legend_grob)
+
+# ============================================================
+# STEP 6: Assemble in the same order/layout as Figure 2
+# (key where ADMIXTURE was, then RMSE-ascending order, ncol = 4)
+# ============================================================
+plots_final <- c(list(key_plot), focal_plots)
+
+final_plot <- plot_grid(plotlist = plots_final, ncol = 4, labels = NULL)
+
+ggsave("revision_Figure3.pdf", final_plot, width = 9, height = 5, dpi = 300)
+```
+
+
+#Figure 4: (python)
+
+```{python}
+#!/usr/bin/env python
+
+"""
+Combined figure: HG tract-length distribution (top-left, big panel) +
+TRACTS comparison plots for 7 ancestry-inference methods.
+
+Clockwise from top-right:
+Right column (rows 0-3, col 3): Mosaic, RFMix, Gnomix, Recomb-Mix
+Bottom row   (row 3, cols 0-2): AncestralPaths (col 0), Ancestry HMM (col 1),
+simpLAI (col 2)
+Shared corner (row 3, col 3)  : Recomb-Mix
+
+Output: 5.5 x 5.5 in, all TRACTS panels identical squares, same axis range.
+"""
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import matplotlib.lines as mlines
+from matplotlib.transforms import blended_transform_factory
+import os.path as path
+
+from FancyPlot import FancyPlot
+
+
+# ------------------------------------------------------------------
+# Colors
+# ------------------------------------------------------------------
+
+COLORS = {
+    'rfmix':          'red',
+    'simplai':        '#e377c2',
+    'mosaic':         'green',
+    'gnomix':         '#8B4513',
+    'recombmix':      '#B8860B',
+    'ancestry_paths': '#ff7f0e',
+    'ancestry_hmm':   '#1f77b4',
+}
+
+
+# ------------------------------------------------------------------
+# Display names -- shared between the HG-plot method legend AND the
+# individual TRACTS panel titles, so the two can never drift apart.
+# ------------------------------------------------------------------
+
+DISPLAY_NAMES = {
+    'rfmix':          'RFMix (7v7)',
+    'simplai':        'simpLAI (7v3)',
+    'mosaic':         'Mosaic (7v3)',
+    'gnomix':         'Gnomix (7v7)',
+    'recombmix':      'Recomb-Mix (7v7)',
+    'ancestry_paths': 'AncestralPaths (7v48)',
+    'ancestry_hmm':   'Ancestry HMM (7v7)',
+}
+
+
+# ------------------------------------------------------------------
+# T= values (generations) shown inside each TRACTS panel
+# ------------------------------------------------------------------
+
+T_GENS = {
+    'rfmix':          10.3,
+    'simplai':        41.0,
+    'mosaic':         6.5,
+    'recombmix':      33.3,
+    'ancestry_paths': 9.1,
+    'ancestry_hmm':   49.6,
+    'gnomix':         16.4,
+}
+
+
+# ------------------------------------------------------------------
+# Shared axis limits for ALL 7 TRACTS panels
+#
+# Set TRACTS_YLIM_TOP to a float (e.g. 5000) to lock the y ceiling.
+# ------------------------------------------------------------------
+
+TRACTS_XLIM     = (0, 250)
+TRACTS_YLIM_BOT = 0.92
+TRACTS_YLIM_TOP = None
+
+
+# ==================================================================
+# PART 1 -- HG tract-length distribution
+# ==================================================================
+
+def build_hg_plot_data(hg_file):
+
+    hg_tracts = pd.read_csv(hg_file, sep=r'\s+')
+
+    # 60 log-spaced bins, 0.5-1000 cM
+    bin_edges   = np.logspace(np.log10(0.5), np.log10(1000), 60)
+    bin_starts  = bin_edges[:-1]
+    bin_ends    = bin_edges[1:]
+    bin_centers = (bin_starts + bin_ends) / 2
+
+    filtered = hg_tracts[hg_tracts['tract_length_cm'] > 0].copy()
+
+    filtered['bin_idx'] = (
+        np.digitize(
+            filtered['tract_length_cm'],
+            bin_edges,
+            right=False
+        ) - 1
+    )
+
+    filtered = filtered[
+        (filtered['bin_idx'] >= 0) &
+        (filtered['bin_idx'] < len(bin_centers))
+    ]
+
+    rename_map = {
+        'ancestry_hmm_haplotypes': 'ancestry_hmm'
+    }
+
+    filtered['Source'] = filtered['Source'].replace(rename_map)
+
+    counts = (
+        filtered.groupby(['Source', 'bin_idx'])
+        .size()
+        .reset_index(name='count')
+    )
+
+    totals = (
+        counts.groupby('Source')['count']
+        .sum()
+        .rename('total_count')
+    )
+
+    counts = counts.join(totals, on='Source')
+
+    counts['proportion'] = (
+        counts['count'] / counts['total_count']
+    )
+
+    counts['bin_center'] = (
+        bin_centers[counts['bin_idx'].values]
+    )
+
+    empirical = (
+        counts[
+            ['Source', 'bin_center', 'proportion']
+        ]
+        .rename(columns={'proportion': 'value'})
+        .copy()
+    )
+
+    empirical['type'] = 'empirical'
+
+    # Theoretical curves (p_hg = 0.4)
+    p_hg = 0.4
+    T_values = range(10, 201, 5)
+
+    theory_rows = []
+
+    for T in T_values:
+
+        lam = (T * (1 - p_hg)) / 100.0
+
+        probs = (
+            np.exp(-lam * bin_starts)
+            - np.exp(-lam * bin_ends)
+        )
+
+        for c, p in zip(bin_centers, probs):
+
+            theory_rows.append(
+                {
+                    'Source': f'Theory T={T}',
+                    'bin_center': c,
+                    'value': p,
+                    'T_value': T
+                }
+            )
+
+    theoretical = pd.DataFrame(theory_rows)
+
+    # log scale needs positive values
+    theoretical = theoretical[
+        theoretical['value'] > 0
+    ]
+
+    return empirical, theoretical
+
+
+def draw_hg_plot(
+    ax,
+    empirical,
+    theoretical,
+    x_limits,
+    y_limits
+):
+
+    from matplotlib.ticker import NullLocator
+
+    highlight_T = [10, 20, 50, 100, 200]
+
+    # Theory curves
+    target_y = 10 ** (-4.8)
+    log_target = np.log10(target_y)
+
+    def find_crossing(sub):
+
+        xs = sub["bin_center"].values
+        log_ys = np.log10(sub["value"].values)
+
+        below = np.where(log_ys <= log_target)[0]
+
+        if len(below) == 0:
+            return xs[-1], sub["value"].values[-1]
+
+        if below[0] == 0:
+            return xs[0], sub["value"].values[0]
+
+        i1 = below[0]
+        i0 = i1 - 1
+
+        x0, x1 = xs[i0], xs[i1]
+        y0, y1 = log_ys[i0], log_ys[i1]
+
+        frac = (log_target - y0) / (y1 - y0)
+
+        x_cross = x0 + frac * (x1 - x0)
+
+        return x_cross, target_y
+
+    stagger_y = {
+        200: 10 ** -4.8,
+        100: 10 ** -4.6,
+        50:  10 ** -4.4
+    }
+
+    for T in highlight_T:
+
+        sub = theoretical[
+            theoretical["T_value"] == T
+        ].sort_values("bin_center")
+
+        sub = sub[
+            sub["bin_center"] <= 250
+        ]
+
+        if len(sub) == 0:
+            continue
+
+        ax.plot(
+            sub["bin_center"],
+            sub["value"],
+            color="black",
+            lw=1.0,
+        )
+
+        x_at_target, y_at_target = find_crossing(sub)
+
+        label_y = stagger_y.get(
+            T,
+            y_at_target
+        )
+
+        ax.text(
+            x_at_target + 5,
+            label_y,
+            f"T={T}",
+            fontsize=7,
+            ha="left",
+            va="center",
+        )
+
+    # Empirical points
+    for source in empirical["Source"].unique():
+
+        sub = empirical[
+            empirical["Source"] == source
+        ].sort_values("bin_center")
+
+        ax.scatter(
+            sub["bin_center"],
+            sub["value"],
+            color=COLORS[source],
+            marker="^",
+            s=35,
+            alpha=0.85,
+        )
+
+    ax.set_xlim(0, 250)
+    ax.set_xscale("linear")
+
+    ax.set_yscale("log")
+    ax.set_ylim(y_limits)
+
+    ax.set_xticks(
+        [0, 50, 100, 150, 200, 250]
+    )
+
+    ax.set_xlabel("")
+    ax.set_ylabel(
+        "Proportion",
+        fontsize=8
+    )
+
+    ax.tick_params(labelsize=7)
+
+    # only major grid
+    ax.grid(
+        True,
+        which="major",
+        color="0.88",
+        lw=0.5
+    )
+
+    ax.grid(
+        False,
+        which="minor"
+    )
+
+    ax.xaxis.set_minor_locator(
+        NullLocator()
+    )
+
+    ax.yaxis.set_minor_locator(
+        NullLocator()
+    )
+
+    # Title
+    ax.set_title(
+        "Hunter-Gatherer Tract Lengths",
+        fontsize=9,
+        fontweight="normal",
+        pad=6,
+    )
+
+    # ---- Legend 1: HG / Farmer ----
+
+    shape_legend = [
+        mlines.Line2D(
+            [],
+            [],
+            color="black",
+            marker="^",
+            linestyle="none",
+            markersize=4,
+            label="Hunter-Gatherer"
+        ),
+        mlines.Line2D(
+            [],
+            [],
+            color="black",
+            marker="s",
+            linestyle="none",
+            markersize=4,
+            label="Farmer"
+        ),
+    ]
+
+    leg1 = ax.legend(
+        handles=shape_legend,
+        frameon=False,
+        fontsize=6,
+        loc="upper left",
+        bbox_to_anchor=(0.58, 1.0),
+    )
+
+    ax.add_artist(leg1)
+
+    # ---- Legend 2: method + color ----
+
+    method_handles = [
+        mlines.Line2D(
+            [],
+            [],
+            color=COLORS[key],
+            marker="^",
+            linestyle="none",
+            markersize=4,
+            label=DISPLAY_NAMES[key]
+        )
+        for key in COLORS
+    ]
+
+    ax.legend(
+        handles=method_handles,
+        frameon=False,
+        fontsize=6,
+        loc="upper left",
+        bbox_to_anchor=(0.58, 0.86),
+    )
+
+
+# ==================================================================
+# PART 2 -- TRACTS panel for a single method
+# ==================================================================
+
+def draw_tracts_panel(
+    ax,
+    input_dir,
+    method_key,
+    show_xlabel,
+    show_ylabel
+):
+
+    color = COLORS[method_key]
+    display_name = DISPLAY_NAMES[method_key]
+
+    common_name = 'one_pulse'
+
+    pop_names = ['HG', 'Farmer']
+
+    pop_labels = [
+        'Hunter-gatherer',
+        'Farmer'
+    ]
+
+    markers = ['^', 's']
+
+    try:
+
+        paths_bins = path.join(
+            input_dir,
+            common_name + '_bins'
+        )
+
+        paths_dat = path.join(
+            input_dir,
+            common_name + '_dat'
+        )
+
+        paths_pred = [
+            path.join(
+                input_dir,
+                common_name + '_pred'
+            )
+        ]
+
+        fp = FancyPlot.load(
+            paths_bins,
+            paths_dat,
+            paths_pred,
+            pop_names,
+            [common_name]
+        )
+
+        pop_colors, theory_colors = fp.choose_colors(
+            colors=[color, color]
+        )
+
+        scatter_handles = []
+
+        for j, (
+            pop,
+            pcolor,
+            t_colors
+        ) in enumerate(
+            zip(
+                fp.populations,
+                pop_colors,
+                theory_colors
+            )
+        ):
+
+            for theory, t_color in zip(
+                pop.theories,
+                t_colors
+            ):
+
+                theory.draw(
+                    ax,
+                    t_color,
+                    bin_scale=fp.bin_scale
+                )
+
+            n = min(
+                len(pop.bins),
+                len(pop.data)
+            )
+
+            sc = ax.scatter(
+                fp.bin_scale * pop.bins[:n],
+                pop.data[:n],
+                color=pcolor,
+                marker=markers[j],
+                s=2.5,
+                zorder=3,
+                label=pop_labels[j]
+            )
+
+            scatter_handles.append(sc)
+
+        # -- Shared axis range --
+
+        ax.set_yscale('log')
+
+        ax.set_xlim(
+            *TRACTS_XLIM
+        )
+
+        ax.set_ylim(
+            bottom=TRACTS_YLIM_BOT,
+            top=TRACTS_YLIM_TOP
+        )
+
+        # -- Force square axes box --
+
+        ax.set_box_aspect(1)
+
+        # -- Method name --
+
+        ax.set_title(
+            display_name,
+            fontsize=6,
+            pad=3
+        )
+
+        # ----------------------------------------------------------
+        # T annotation
+        #
+        # IMPORTANT:
+        # For AncestralPaths, "Bad Fit" is now in the TOP-RIGHT
+        # corner of the panel.
+        #
+        # x = 0.93 and y = 0.93 are both axes coordinates,
+        # so the text remains in the same corner regardless
+        # of the y-axis scale.
+        # ----------------------------------------------------------
+
+        trans = blended_transform_factory(
+            ax.transAxes,
+            ax.transAxes
+        )
+
+        if method_key == 'ancestry_paths':
+
+            ax.text(
+                0.93,
+                0.93,
+                'Bad Fit',
+                transform=trans,
+                fontsize=5,
+                va='top',
+                ha='right',
+                style='italic'
+            )
+
+        else:
+
+            t_val = T_GENS.get(
+                method_key
+            )
+
+            if t_val is not None:
+
+                # Keep all other T annotations exactly as before:
+                # x = 80 cM, y = 93% of the panel height.
+
+                trans_t = blended_transform_factory(
+                    ax.transData,
+                    ax.transAxes
+                )
+
+                ax.text(
+                    80,
+                    0.93,
+                    f'T = {t_val} gens',
+                    transform=trans_t,
+                    fontsize=5,
+                    va='top',
+                    ha='left',
+                    style='italic'
+                )
+
+        # -- Axis labels / ticks --
+
+        if not show_xlabel:
+
+            ax.tick_params(
+                labelbottom=False
+            )
+
+        else:
+
+            ax.set_xlabel(
+                'Tract Length (cM)',
+                fontsize=6
+            )
+
+        if show_ylabel:
+
+            ax.set_ylabel(
+                'Number of Tracts',
+                fontsize=6
+            )
+
+        ax.tick_params(
+            labelsize=6
+        )
+
+        print(
+            'Success:',
+            display_name
+        )
+
+    except Exception as e:
+
+        print(
+            'ERROR:',
+            display_name,
+            e
+        )
+
+        ax.text(
+            0.5,
+            0.5,
+            str(e),
+            transform=ax.transAxes,
+            ha='center',
+            fontsize=4.5,
+            wrap=True
+        )
+
+        ax.set_box_aspect(1)
+
+
+# ==================================================================
+# ASSEMBLE COMBINED FIGURE
+# ==================================================================
+
+def create_combined_figure(
+    output_file='combined_HG_TRACTS_figure.pdf'
+):
+
+    # ---- HG data ----
+
+    hg_file = (
+        '../final_figures_data/'
+        'hg_combined_tract_data.txt'
+    )
+
+    empirical, theoretical = (
+        build_hg_plot_data(hg_file)
+    )
+
+    # Fixed y-range
+
+    y_limits = (
+        1e-5,
+        1e-1
+    )
+
+    all_x = pd.concat(
+        [
+            empirical['bin_center'],
+            theoretical['bin_center']
+        ]
+    )
+
+    x_limits = (
+        all_x.min() * 0.9,
+        all_x.max() * 1.1
+    )
+
+    # ----------------------------------------------------------------
+    # Layout -- clockwise from top-right:
+    #
+    #   Right column (col 3, rows 0->3):
+    #     row 0  mosaic
+    #     row 1  rfmix
+    #     row 2  gnomix
+    #     row 3  recombmix
+    #
+    #   Bottom row:
+    #     col 0  ancestral_paths
+    #     col 1  ancestry_hmm
+    #     col 2  simplai
+    # ----------------------------------------------------------------
+
+    right_col_methods = [
+
+        {
+            'key': 'mosaic',
+            'input_dir': '../mosaic'
+        },
+
+        {
+            'key': 'rfmix',
+            'input_dir': '../rfmix'
+        },
+
+        {
+            'key': 'gnomix',
+            'input_dir': '../gnomix'
+        },
+
+        {
+            'key': 'recombmix',
+            'input_dir': '../recombmix'
+        },
+    ]
+
+    bottom_row_methods = [
+
+        {
+            'key': 'ancestry_paths',
+            'input_dir': '../ancestry_paths'
+        },
+
+        {
+            'key': 'ancestry_hmm',
+            'input_dir': '../ancestry_hmm'
+        },
+
+        {
+            'key': 'simplai',
+            'input_dir': '../simplai'
+        },
+    ]
+
+    # ----------------------------------------------------------------
+    # Figure
+    # ----------------------------------------------------------------
+
+    fig = plt.figure(
+        figsize=(5.5, 5.5)
+    )
+
+    gs = gridspec.GridSpec(
+        4,
+        4,
+        figure=fig,
+        width_ratios=[
+            1, 1, 1, 1
+        ],
+        height_ratios=[
+            1, 1, 1, 1
+        ],
+        wspace=0.50,
+        hspace=0.50,
+    )
+
+    # -- Big HG panel (rows 0-2, cols 0-2) --
+
+    ax_hg = fig.add_subplot(
+        gs[0:3, 0:3]
+    )
+
+    draw_hg_plot(
+        ax_hg,
+        empirical,
+        theoretical,
+        x_limits,
+        y_limits
+    )
+
+    # -- Right column: col 3, rows 0-3 --
+
+    for row, method in enumerate(
+        right_col_methods
+    ):
+
+        ax = fig.add_subplot(
+            gs[row, 3]
+        )
+
+        draw_tracts_panel(
+            ax,
+            method['input_dir'],
+            method['key'],
+            show_xlabel=(row == 3),
+            show_ylabel=False,
+        )
+
+    # -- Bottom row: row 3, cols 0-2 --
+
+    for col, method in enumerate(
+        bottom_row_methods
+    ):
+
+        ax = fig.add_subplot(
+            gs[3, col]
+        )
+
+        draw_tracts_panel(
+            ax,
+            method['input_dir'],
+            method['key'],
+            show_xlabel=True,
+            show_ylabel=(col == 0),
+        )
+
+    # ----------------------------------------------------------------
+    # Save
+    # ----------------------------------------------------------------
+
+    fig.savefig(
+        output_file,
+        dpi=300,
+        bbox_inches='tight'
+    )
+
+    plt.close()
+
+    print(
+        'Saved:',
+        output_file
+    )
+
+
+# ==================================================================
+# MAIN
+# ==================================================================
+
+if __name__ == '__main__':
+
+    create_combined_figure()
+    
+#saves to combined_HG_TRACTS_figure.pdf so need to move to revision_figure4.pdf
+```
+
+
+
+#Figure 5:
+
+```{r}
+# FULL FIGURE: Manhattan + QQ + Replication + Enrichment panels
+# --- MODIFIED: panels A and B now rasterize only their point layers
+#     (via ggrastr) so the ~570k-SNP scatter doesn't get stored as
+#     hundreds of thousands of individual vector objects in the PDF.
+#     Everything else (axis text, gene labels, panel letters, C-J)
+#     stays true vector. No Illustrator step needed.
+
+library(ggplot2)
+library(dplyr)
+library(cowplot)
+library(gridExtra)
+library(ggrastr)   # install.packages(c("ggrastr", "ragg")) if not present
+
+
+# LOAD DATA
+
+z_score_data <- read.table("../final_figures_data/dis_combined_weighted_z_scores.txt", header = TRUE)
+
+capture_z_score_data <- read.table("../final_figures_data/rep1_combined_weighted_z_scores.txt", header = TRUE)
+
+rep_z_score_data <- read.table("../final_figures_data/rep2_combined_weighted_z_scores.txt", header = TRUE)
+
+chr23_data <- read.table(
+  "../final_figures_data/combined_weighted_z_scores.txt",
+  header = TRUE
+)
+
+combined_data <- bind_rows(z_score_data, chr23_data)
+combined_data$CHR <- as.numeric(combined_data$CHR)
+
+
+# EQUAL-WIDTH CHROMOSOMES
+
+combined_data <- combined_data %>%
+  group_by(CHR) %>%
+  arrange(POS) %>%
+  mutate(pos_scaled = (POS - min(POS)) / (max(POS) - min(POS))) %>%
+  ungroup()
+
+chr_offsets <- combined_data %>%
+  distinct(CHR) %>%
+  arrange(CHR) %>%
+  mutate(offset = row_number() - 1)
+
+combined_data <- combined_data %>%
+  left_join(chr_offsets, by = "CHR") %>%
+  mutate(plot_index = pos_scaled + offset)
+
+
+# COLORS
+
+combined_data$color <- ifelse(
+  combined_data$CHR == 23,
+  "#5dade2",
+  ifelse(combined_data$CHR %% 2 == 0,
+         "#9b59b6",
+         "#d2b4de")
+)
+
+
+# GENE LABELS (MANHATTAN) -- PER3 removed
+
+chr_centers <- combined_data %>%
+  group_by(CHR) %>%
+  summarise(chr_center = mean(plot_index)) %>%
+  ungroup()
+
+gene_labels_manhattan <- data.frame(
+  gene = c("HLA", "FADS1/2", "IRAK4", "SLC24A5"),
+  CHR  = c(6, 11, 12, 15),
+  y    = c(4.5, -3.6, 4.5, -3.6)
+) %>%
+  left_join(chr_centers, by = "CHR") %>%
+  rename(x = chr_center)
+
+
+# MANHATTAN PLOT
+# --- CHANGED: geom_point() -> rasterize(geom_point(...), dpi = 600)
+# Text layers (gene labels, axis) are left untouched and stay vector.
+
+manhattan_plot <- ggplot(combined_data,
+                         aes(x = plot_index,
+                             y = weighted_z,
+                             color = color)) +
+  rasterize(geom_point(size = 0.5), dpi = 600) +
+  geom_hline(yintercept = c(3, -3),
+             linetype = "dashed",
+             color = "black") +
+
+  annotate("text", x = max(combined_data$plot_index), y = 4,
+           label = "z = 3",  hjust = 1.1, size = 3) +
+  annotate("text", x = max(combined_data$plot_index), y = -3.5,
+           label = "z = -3", hjust = 1.1, size = 3) +
+
+  geom_text(data = gene_labels_manhattan %>% filter(gene != "HLA"),
+            aes(x = x, y = y, label = gene),
+            inherit.aes = FALSE,
+            fontface = "italic",
+            size = 2.5) +
+  geom_text(data = gene_labels_manhattan %>% filter(gene == "HLA"),
+            aes(x = x, y = y, label = gene),
+            inherit.aes = FALSE,
+            fontface = "plain",
+            size = 2.5) +
+
+  scale_color_identity() +
+  labs(x = "Chromosome", y = "Average Z-score") +
+  theme_minimal(base_size = 9) +
+  theme(
+    axis.text.x     = element_blank(),
+    axis.ticks.x    = element_blank(),
+    legend.position = "none",
+    plot.margin     = margin(10, 10, 2, 10)
+  )
+
+
+# QQ PLOT
+
+auto_qq <- combined_data %>%
+  filter(CHR != 23, !is.na(p_value), p_value > 0)
+
+x_qq <- combined_data %>%
+  filter(CHR == 23, !is.na(p_value), p_value > 0)
+
+qq_list <- list()
+
+if (nrow(auto_qq) > 0) {
+  qq_list[[1]] <- data.frame(
+    expected = -log10(ppoints(nrow(auto_qq))),
+    observed = -log10(sort(auto_qq$p_value)),
+    group    = "Autosomes"
+  )
+}
+
+if (nrow(x_qq) > 0) {
+  qq_list[[2]] <- data.frame(
+    expected = -log10(ppoints(nrow(x_qq))),
+    observed = -log10(sort(x_qq$p_value)),
+    group    = "ChrX"
+  )
+}
+
+qq_combined <- bind_rows(qq_list)
+
+# --- CHANGED: geom_point() -> rasterize(geom_point(...), dpi = 600)
+qq_plot <- ggplot(qq_combined,
+                  aes(x = expected,
+                      y = observed,
+                      color = group)) +
+  rasterize(geom_point(size = 0.4, alpha = 0.7), dpi = 600) +
+  geom_abline(slope = 1, intercept = 0,
+              color = "gray40",
+              linetype = "dashed") +
+  scale_color_manual(values = c(
+    "Autosomes" = "#9b59b6",
+    "ChrX"      = "#5dade2"
+  )) +
+  labs(x = "Expected",
+       y = "Observed",
+       color = NULL) +
+  theme_minimal(base_size = 8) +
+  theme(
+    legend.position   = c(0.7, 0.2),
+    legend.background = element_blank(),
+    legend.key.size   = unit(1.2, "lines"),
+    legend.text       = element_text(size = 6),
+    plot.margin = margin(10, 10, 10, 10)
+  ) +
+  guides(color = guide_legend(
+    override.aes = list(size = 3)
+  ))
+
+
+# TOP PANEL (A + B)
+
+top_row <- plot_grid(
+  manhattan_plot,
+  qq_plot,
+  labels     = c("A", "B"),
+  label_size = 14,
+  label_fontface  = "plain",
+  rel_widths = c(2.5, 1.5)
+)
+
+
+# REPLICATION FUNCTION
+# (unchanged -- these panels have very few points and are cheap to
+# keep as vector; no rasterization needed here)
+
+make_chr_plot <- function(chrom, midpoint, show_legend = FALSE) {
+
+  window_size <- 1e7
+
+  combined <- bind_rows(
+    z_score_data %>%
+      filter(CHR == chrom & abs(POS - midpoint) < window_size) %>%
+      mutate(dataset = "Discovery"),
+
+    capture_z_score_data %>%
+      filter(CHR == chrom & abs(POS - midpoint) < window_size) %>%
+      mutate(dataset = "Replication 1"),
+
+    rep_z_score_data %>%
+      filter(CHR == chrom & abs(POS - midpoint) < window_size) %>%
+      mutate(dataset = "Replication 2")
+  )
+
+  combined$POS_MB <- combined$POS / 1e6
+
+  x_min <- (midpoint - window_size) / 1e6
+  x_max <- (midpoint + window_size) / 1e6
+
+  combined$dataset <- factor(combined$dataset,
+                             levels = c("Discovery", "Replication 1", "Replication 2"))
+
+  p <- ggplot(combined, aes(x = POS_MB, y = weighted_z, color = dataset)) +
+    geom_point(size = 0.4) +
+
+    geom_hline(yintercept = c(3, -3),
+               linetype   = "dashed",
+               color      = "black",
+               linewidth  = 0.4) +
+
+    geom_hline(yintercept = c(2.64, -2.64),
+               linetype   = "solid",
+               color      = "black",
+               linewidth  = 0.4) +
+
+    scale_color_manual(
+      name   = "Dataset",
+      values = c(
+        "Discovery"     = "purple4",
+        "Replication 1" = "darkgreen",
+        "Replication 2" = "lightgreen"
+      )
+    ) +
+
+    labs(x = "Position (Mb)", y = "Z-score") +
+    coord_cartesian(xlim = c(x_min, x_max)) +
+    theme_minimal(base_size = 7) +
+    theme(
+      legend.position = if (show_legend) "bottom" else "none",
+      axis.text.x     = element_text(angle = 45, hjust = 1),
+      plot.margin     = margin(5, 5, 5, 5)
+    )
+
+  # ---------- REGION BOX ----------
+  gene_annotations <- data.frame(
+    gene  = c("HLA", "FADS1", "FADS2", "SLC24A5"),
+    CHR   = c(6, 11, 11, 15),
+    start = c(29600000, 61570000, 61620000, 48420000),
+    end   = c(33400000, 61590000, 61640000, 48440000)
+  )
+
+  pos_height <- c(2.8, 3.2)
+  neg_height <- c(-3.2, -2.8)
+
+  if (chrom == 6) {
+    ann  <- gene_annotations %>% filter(CHR == 6)
+    xmin <- ann$start / 1e6
+    xmax <- ann$end   / 1e6
+    ymin <- neg_height[1]
+    ymax <- neg_height[2]
+  } else {
+    box_half_width <- 0.2
+    xmin <- (midpoint / 1e6) - box_half_width
+    xmax <- (midpoint / 1e6) + box_half_width
+
+    if (chrom %in% c(11, 15)) {
+      ymin <- pos_height[1]; ymax <- pos_height[2]
+    } else {
+      ymin <- neg_height[1]; ymax <- neg_height[2]
+    }
+  }
+
+  p <- p +
+    annotate("rect",
+             xmin = xmin, xmax = xmax,
+             ymin = ymin, ymax = ymax,
+             fill = "black")
+
+  return(p)
+}
+
+
+# REPLICATION PANELS (C-F) — PER3 dropped, no legend
+
+p2 <- make_chr_plot(6,  30927867)
+p3 <- make_chr_plot(11, 61906864)
+p4 <- make_chr_plot(12, 44252015)
+p5 <- make_chr_plot(15, 48433494)
+
+rep_row <- plot_grid(
+  p2, p3, p4, p5,
+  ncol       = 4,
+  labels     = c("C", "D", "E", "F"),
+  label_size = 8,
+  label_fontface  = "plain",
+  align      = "h"
+)
+
+# Gene labels above C-F
+rep_gene_labels <- c("HLA", "FADS1/2", "IRAK4", "SLC24A5")
+
+# x positions: just to the right of each panel letter
+x_label_positions <- seq(0.05, 0.78, length.out = 4)
+
+rep_row_with_genes <- ggdraw(rep_row)
+for (i in 1:4) {
+  rep_row_with_genes <- rep_row_with_genes +
+    draw_label(
+      rep_gene_labels[i],
+      x        = x_label_positions[i],
+      y        = 0.97,
+      hjust    = 0,          # left-align
+      fontface = ifelse(rep_gene_labels[i] == "HLA", "plain", "italic"),
+      size     = 7
+    )
+}
+
+
+
+# ENRICHMENT DATA
+# (unchanged -- bar charts, negligible file size contribution)
+
+methods <- c("ancestry_hmm", "mosaic", "rfmix", "simplai","gnomix", "recombmix",
+             "replication2", "replication1", "ancestry_paths")
+
+full_paths <- c(
+  "../final_figures_data/fig5_full_ancestry_hmm_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_mosaic_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_rfmix_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_simplai_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_gnomix_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_recombmix_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_replication2_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_replication1_output_ancestry_hmm.txt",
+  "../final_figures_data/fig5_full_ancestry_paths_average_ancestry_output.txt"
+)
+
+subset_paths <- c(
+  "../final_figures_data/fig5_ancestryhmm_average_ancestry_output.txt",
+  "../final_figures_data/fig5_mosaic_average_ancestry_output.txt",
+  "../final_figures_data/fig5_rfmix_average_ancestry_output.txt",
+  "../final_figures_data/fig5_simplai_average_ancestry_output.txt",
+  "../final_figures_data/fig5_gnomix_average_ancestry_output.txt",
+  "../final_figures_data/fig5_recombmix_average_ancestry_output.txt",
+  "../final_figures_data/fig5_replication2_average_ancestry_output.txt",
+  "../final_figures_data/fig5_replication1_average_ancestry_output.txt",
+  "../final_figures_data/fig5_ancestry_paths_average_ancestry_output.txt"
+)
+
+# Two-letter codes matching methods order
+two_letter_codes <- c("AH", "Mo", "RF", "SI", "GN", "RM", "R2", "R1", "AP")
+
+regions <- data.frame(
+  gene  = c("HLA",    "IRAK4",  "FADS",   "SLC24A5"),
+  chr   = c(6,        12,       11,       15),
+  start = c(30000000, 42252015, 59000000, 46105416),
+  end   = c(33000000, 46252015, 65000000, 50105416)
+)
+
+enrich_results <- data.frame()
+
+for (r in 1:nrow(regions)) {
+  region <- regions[r, ]
+
+  for (i in seq_along(methods)) {
+    method <- methods[i]
+
+    subset_data     <- read.table(subset_paths[i], header = TRUE)
+    overall_subset  <- mean(subset_data$HGall, na.rm = TRUE)
+    region_subset   <- mean(subset_data$HGall[
+      subset_data$CHR == region$chr &
+      subset_data$POS > region$start &
+      subset_data$POS < region$end
+    ], na.rm = TRUE)
+    subset_enrichment <- region_subset - overall_subset
+
+    full_data       <- read.table(full_paths[i], header = TRUE)
+    overall_full    <- mean(full_data$HGall, na.rm = TRUE)
+    region_full     <- mean(full_data$HGall[
+      full_data$CHR == region$chr &
+      full_data$POS > region$start &
+      full_data$POS < region$end
+    ], na.rm = TRUE)
+    full_enrichment <- region_full - overall_full
+
+    enrich_results <- rbind(enrich_results, data.frame(
+      gene       = region$gene,
+      method     = method,
+      short_code = two_letter_codes[i],
+      type       = c("Full", "Subset"),
+      enrichment = c(full_enrichment, subset_enrichment)
+    ))
+  }
+}
+
+
+# ENRICHMENT FACTOR ORDERING
+
+enrich_results$gene <- factor(enrich_results$gene,
+                               levels = c("HLA", "FADS", "IRAK4", "SLC24A5"))
+
+# Display order: 5 discovery methods then R1 then R2
+display_order <- c("AH", "Mo", "RF", "SI", "GN", "RM","AP", "R1", "R2")
+enrich_results$short_code <- factor(enrich_results$short_code,
+                                     levels = display_order)
+
+# Dataset group drives colour
+enrich_results$ds_group <- case_when(
+  enrich_results$short_code %in% c("AH", "Mo", "RF", "SI", "GN", "RM", "AP") ~ "Discovery",
+  enrich_results$short_code == "R1"                               ~ "Replication 1",
+  enrich_results$short_code == "R2"                               ~ "Replication 2"
+)
+enrich_results$ds_group <- factor(enrich_results$ds_group,
+                                   levels = c("Discovery", "Replication 1", "Replication 2"))
+
+ds_colours <- c(
+  "Discovery"     = "purple4",
+  "Replication 1" = "darkgreen",
+  "Replication 2" = "#90ee90"
+)
+
+
+# ENRICHMENT PLOTS (G-J)
+# Full  = solid fill + matching outline, dodged left
+# Subset = open bar (alpha=0 fill) + matching outline, dodged right
+
+gene_order           <- c("HLA", "FADS", "IRAK4", "SLC24A5")
+panel_letters_enrich <- c("G", "H", "I", "J")
+
+enrich_plots <- list()
+
+for (g in seq_along(gene_order)) {
+  gname <- gene_order[g]
+  dat_g <- enrich_results %>% filter(gene == gname)
+
+  dat_full   <- dat_g %>% filter(type == "Full")
+  dat_subset <- dat_g %>% filter(type == "Subset")
+
+  # Assign explicit dodge group ids so both layers dodge together
+  dat_full$dodge_id   <- paste0(as.character(dat_full$short_code),   "_F")
+  dat_subset$dodge_id <- paste0(as.character(dat_subset$short_code), "_S")
+
+  dat_g$bar_fill <- ifelse(dat_g$type == "Full",
+                            ds_colours[as.character(dat_g$ds_group)],
+                            "white")
+
+  ep <- ggplot(dat_g,
+               aes(x = short_code, y = enrichment,
+                   group = type)) +
+    geom_bar(stat     = "identity",
+             position = position_dodge(width = 0.6),
+             width    = 0.5,
+             linewidth = 0.4,
+             aes(fill = bar_fill, colour = ds_group)) +
+    scale_fill_identity() +
+    scale_colour_manual(name = "Dataset", values = ds_colours) +
+    geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+    geom_vline(xintercept = 7.5, linetype = "dotted",
+               linewidth = 0.5, color = "grey40") +
+    labs(x = NULL, y = "HG Ancestry Enrichment") +
+    theme_classic(base_size = 7) +
+    theme(
+      legend.position = "none",
+      plot.title      = element_blank(),
+      axis.text.x     = element_text(size = 6),
+      plot.margin     = margin(18, 5, 5, 5)
+    )
+
+  enrich_plots[[g]] <- ep
+}
+
+
+# ENRICHMENT ROW + PANEL LETTERS (G-J via ggdraw)
+
+enrich_row_raw <- plot_grid(
+  plotlist = enrich_plots,
+  ncol     = 4,
+  align    = "h",
+  axis     = "tb"
+)
+
+x_enrich <- seq(0.03, 0.78, length.out = 4)
+
+enrich_gene_labels <- c("HLA", "FADS1/2", "IRAK4", "SLC24A5")
+
+enrich_row <- ggdraw(enrich_row_raw)
+for (g in 1:4) {
+  enrich_row <- enrich_row +
+    draw_label(
+      panel_letters_enrich[g],
+      x        = x_enrich[g],
+      y        = 0.97,
+      fontface = "plain",
+      size     = 9
+    ) +
+    draw_label(
+      enrich_gene_labels[g],
+      x        = x_enrich[g] + 0.018,   # just right of the letter
+      y        = 0.97,
+      hjust    = 0,
+      fontface = ifelse(enrich_gene_labels[g] == "HLA", "plain", "italic"),
+      size     = 7
+    )
+}
+
+
+# SHARED LEGEND FOR G-J
+# Colour = dataset group; Fill style = Full (solid) vs Subset (open)
+
+legend_helper <- data.frame(
+  short_code = factor(rep(display_order, each = 2), levels = display_order),
+  type       = rep(c("Full", "Subset"), length(display_order)),
+  enrichment = 0.1
+)
+legend_helper$ds_group <- case_when(
+  legend_helper$short_code %in% c("AH","Mo","RF","SI", "GN", "RM","AP") ~ "Discovery",
+  legend_helper$short_code == "R1"                          ~ "Replication 1",
+  legend_helper$short_code == "R2"                          ~ "Replication 2"
+)
+legend_helper$ds_group <- factor(legend_helper$ds_group,
+                                  levels = c("Discovery","Replication 1","Replication 2"))
+legend_helper$dodge_id <- paste0(legend_helper$short_code, "_",
+                                  substr(legend_helper$type, 1, 1))
+
+legend_enrich <- cowplot::get_legend(
+  ggplot(legend_helper,
+         aes(x = short_code, y = enrichment,
+             fill = ds_group, colour = ds_group,
+             alpha = type,
+             group = dodge_id)) +
+    geom_bar(stat = "identity",
+             position = position_dodge2(width = 0.8, preserve = "single"),
+             width = 0.35, linewidth = 0.5) +
+    scale_fill_manual(
+      name   = "Dataset",
+      values = ds_colours
+    ) +
+    scale_colour_manual(
+      name   = "Dataset",
+      values = ds_colours
+    ) +
+    scale_alpha_manual(
+      name   = "Sample set",
+      values = c("Full" = 1, "Subset" = 0),
+      guide  = guide_legend(
+        override.aes = list(
+          fill   = c("grey30", "white"),
+          colour = c("grey30", "grey30"),
+          alpha  = c(1, 1)
+        )
+      )
+    ) +
+    theme_void() +
+    theme(
+      legend.position = "bottom",
+      legend.box      = "horizontal",
+      legend.text     = element_text(size = 6),
+      legend.title    = element_text(size = 6, face = "plain"),
+      legend.key.size = unit(0.4, "lines")
+    ) +
+    guides(
+      fill   = guide_legend(override.aes = list(alpha = 1)),
+      colour = guide_legend(override.aes = list(alpha = 1))
+    )
+)
+
+
+# ASSEMBLE FULL FIGURE
+
+final_plot <- plot_grid(
+  top_row,            # A + B (rasterized points, vector text)
+  rep_row_with_genes, # C-F
+  enrich_row,         # G-J
+  legend_enrich,      # combined legend for G-J only
+  ncol        = 1,
+  rel_heights = c(1, 0.97, 0.62, 0.10)
+)
+
+
+# SAVE
+# --- CHANGED: use ragg::agg_pdf as the PDF device so the raster
+#     layer produced by ggrastr embeds cleanly and at good quality.
+#     (If you don't have ragg, cairo_pdf works too but embeds
+#     rasters at a slightly lower default quality.)
+
+ggsave("revision_Figure5.pdf",
+       final_plot,
+       width  = 7,
+       height = 5.5,
+       dpi    = 300,
+       device = cairo_pdf)
+
+```
+
+
+
+#Supplemental Figures:
+
+
+#Figure S1:
+
+```{r}
+ancestry_paths_z_score_data <- read.table("../final_sup_figures_data/S1_ancestry_paths_combined_weighted_z_scores.txt", header = TRUE)
+
+library(ggplot2)
+library(dplyr)
+library(grid)
+library(gridExtra)
+
+# Read data
+combined_data <- ancestry_paths_z_score_data
+
+# Assign alternating purple shades per chromosome
+combined_data$color <- ifelse(as.numeric(combined_data$CHR) %% 2 == 0, "#d35400", "#f5cba7")  # dark and light orange
+
+
+# Get average index per chromosome
+chr_positions <- combined_data %>%
+  group_by(CHR) %>%
+  summarise(chr_index = mean(index)) %>%
+  ungroup()
+
+# Gene label positions (x = previous chromosome, y = ±4)
+gene_labels <- data.frame(
+  gene = c("HLA", "FADS", "SLC24A5", "TMEM117"),
+  CHR = c(6, 11, 14, 11),
+  y = c(4, -3.7, -3.7, 4)
+) %>%
+  left_join(chr_positions, by = "CHR") %>%
+  # Shift to previous chromosome’s index if possible
+  mutate(CHR_prev = CHR - 1) %>%
+  left_join(chr_positions, by = c("CHR_prev" = "CHR"), suffix = c("", "_prev")) %>%
+  mutate(x = ifelse(!is.na(chr_index_prev), chr_index_prev, chr_index)) %>%
+  select(gene, x, y)
+
+
+
+# Create Manhattan plot
+manhattan_plot <- ggplot(combined_data, aes(x = index, y = weighted_z, color = color)) +
+  geom_point(size = 0.7) +
+  geom_hline(yintercept = c(3, -3), color = "black", linetype = "solid") +
+
+  # Add line labels (using annotate)
+  annotate("text", x = max(combined_data$index) * 0.98, y = 3, label = "Z = 3", hjust = 1, vjust = -0.3, size = 3) +
+  annotate("text", x = max(combined_data$index) * 0.98, y = -3, label = "Z = -3", hjust = 1, vjust = 1.3, size = 3) +
+
+  
+    # Gene annotations
+  
+  scale_color_identity() +
+  labs(x = "Chromosome", y = "Average Z-score") +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+# Prepare data for QQ plot
+qq_data <- combined_data %>%
+  dplyr::select(p_value = p_value) %>%
+  mutate(p_value = as.numeric(p_value)) %>%
+  filter(!is.na(p_value) & p_value > 0)
+
+# Create QQ plot
+qq_plot <- {
+  n <- length(qq_data$p_value)
+  observed <- -log10(sort(qq_data$p_value))
+  expected <- -log10(ppoints(n))
+  
+  ggplot(data.frame(expected, observed), aes(x = expected, y = observed)) +
+    geom_point(size = 0.6, alpha = 0.6) +
+    geom_abline(slope = 1, intercept = 0, color = "gray40", linetype = "dashed") +
+    labs(x = "Expected", y = "Observed") +
+    theme_minimal(base_size = 10) +
+    theme(
+      plot.margin = margin(10, 10, 10, 10),
+      axis.title = element_text(size = 9),
+      axis.text = element_text(size = 8)
+    )
+}
+
+# Combine plots side by side using cowplot
+combined_plot <- plot_grid(
+  manhattan_plot,
+  qq_plot,
+  labels = c("A", "B"),
+  label_size = 12,
+  rel_widths = c(2.5, 1.5)
+)
+
+# Save to PDF
+ggsave("revision_FigureS1.pdf", combined_plot, width = 8, height = 3.75)
+
+
+```
+
+
+#Figure S2:
+
+```{r}
+
+library(tidyverse)
+library(cowplot)
+library(ggplot2)
+
+# COLORS
+colors <- c(
+  ADMIXED = "#9467bd",
+  simplai = "#e377c2",
+  ancestry_hmm = "#1f77b4",
+  ancestry_paths = "#ff7f0e",
+  mosaic = "#2ca02c",
+  rfmix = "#d62728",
+  rfmix_filtered = "#e41a1c",
+  ancestry_hmm_filtered = "#377eb8",
+  mosaic_filtered = "#4daf4a",
+  recombmix = "#B8860B",
+  gnomix = "#8B4513",
+  gnomix_filtered = "#A0522D"
+)
+
+# PANEL FILE PATHS
+panel_paths <- list(
+  `7v48` = c(
+    "../final_sup_figures_data/7v48_admixture_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v48_mosaic_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v48_ancestry_paths_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v48_ancestry_hmm_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v48_rfmix_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v48_simplai_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v48_qpadm_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v48_filter_rfmix_global_ancestry.txt",
+    "../final_sup_figures_data/7v48_ancestry_hmm_global.txt",
+    "../final_sup_figures_data/7v48_mosaic_global.txt",
+    "../final_sup_figures_data/7v48_recombmix_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v48_gnomix_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v48_posterior_gnomix_output_global_ancestry.txt"
+  ),
+
+  `7v7` = c(
+    "../final_sup_figures_data/7v7_input_mneo_GA_output.txt",
+    "../final_sup_figures_data/7v7_mosaic_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v7_ancestry_hmm_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v7_rfmix_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v7_simplai_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v7_qpadm_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v7_rfmix_global_ancestry.txt",
+    "../final_sup_figures_data/7v7_ancestry_hmm_global.txt",
+    "../final_sup_figures_data/7v7_mosaic_global.txt",
+    "../final_sup_figures_data/recombmix_output_global_ancestry.txt",
+    "../final_sup_figures_data/gnomix_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v7_posterior_gnomix_output_global_ancestry.txt"
+  ),
+
+  `7v3` = c(
+    "../final_sup_figures_data/7v3_input_mneo_GA_output.txt",
+    "../final_sup_figures_data/7v3_mosaic_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v3_ancestry_hmm_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v3_rfmix_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v3_simplai_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v3_qpadm_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v3_rfmix_global_ancestry.txt",
+    "../final_sup_figures_data/7v3_ancestry_hmm_global.txt",
+    "../final_sup_figures_data/7v3_mosaic_global.txt",
+    "../final_sup_figures_data/7v3_recombmix_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v3_gnomix_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v3_posterior_gnomix_output_global_ancestry.txt"
+  ),
+
+  `7v1` = c(
+    "../final_sup_figures_data/7v1_input_mneo_GA_output.txt",
+    "../final_sup_figures_data/7v1_mosaic_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v1_ancestry_hmm_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v1_rfmix_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v1_simplai_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v1_qpadm_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v1_rfmix_global_ancestry.txt",
+    "../final_sup_figures_data/7v1_ancestry_hmm_global.txt",
+    "../final_sup_figures_data/7v1_mosaic_global.txt",
+    "../final_sup_figures_data/7v1_recombmix_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v1_gnomix_output_global_ancestry.txt",
+    "../final_sup_figures_data/7v1_posterior_gnomix_output_global_ancestry.txt"
+  )
+)
+
+# METHOD AND ROW/COL ORDER
+method_names <- c(
+  "ADMIXTURE",
+  "mosaic",
+  "ancestry_paths",
+  "ancestry_hmm",
+  "rfmix",
+  "simplai",
+  "rfmix_filtered",
+  "ancestry_hmm_filtered",
+  "mosaic_filtered",
+  "recombmix",
+  "gnomix",
+  "gnomix_filtered",
+  "qpadm"
+)
+
+# Add new filtered rows
+row_order <- c(
+  "ADMIXTURE",
+  "ancestry_paths",
+  "simplai",
+  "rfmix",
+  "rfmix_filtered",
+  "mosaic",
+  "mosaic_filtered",
+  "ancestry_hmm",
+  "ancestry_hmm_filtered",
+  "recombmix",
+  "gnomix",
+  "gnomix_filtered"
+)
+
+col_order <- c("7v48","7v7","7v3","7v1")
+
+panel_methods <- list(
+  `7v48` = c(
+    "ADMIXTURE","mosaic","ancestry_paths","ancestry_hmm","rfmix","simplai","qpadm",
+    "rfmix_filtered","ancestry_hmm_filtered","mosaic_filtered",
+    "recombmix","gnomix","gnomix_filtered"
+  ),
+
+  `7v7` = c(
+    "ADMIXTURE","mosaic","ancestry_hmm","rfmix","simplai","qpadm",
+    "rfmix_filtered","ancestry_hmm_filtered","mosaic_filtered",
+    "recombmix","gnomix","gnomix_filtered"
+  ),
+
+  `7v3` = c(
+    "ADMIXTURE","mosaic","ancestry_hmm","rfmix","simplai","qpadm",
+    "rfmix_filtered","ancestry_hmm_filtered","mosaic_filtered",
+    "recombmix","gnomix","gnomix_filtered"
+  ),
+
+  `7v1` = c(
+    "ADMIXTURE","mosaic","ancestry_hmm","rfmix","simplai","qpadm",
+    "rfmix_filtered","ancestry_hmm_filtered","mosaic_filtered",
+    "recombmix","gnomix","gnomix_filtered"
+  )
+)
+
+# FUNCTION TO READ FILES
+read_method_file <- function(path, method) {
+  df <- read.table(path, header=TRUE)
+  colnames(df) <- c("sample", paste0("global_ancestry_", method))
+  return(df)
+}
+
+# FUNCTION TO BUILD EACH PANEL
+make_plot <- function(qp_df, method_df, method_name) {
+  df_plot <- inner_join(qp_df, method_df, by = "sample")
+  colnames(df_plot) <- c("sample","qpAdm","method_val")
+  
+  if (nrow(df_plot)==0 || all(is.na(df_plot$method_val))) {
+    return(ggplot() + theme_void())
+  }
+  
+  # stats
+  R_val     <- cor(df_plot$qpAdm, df_plot$method_val)
+  beta_val  <- coef(lm(method_val ~ qpAdm, df_plot))[2]
+  delta_val <- mean(abs(df_plot$method_val - df_plot$qpAdm))
+  
+  # color
+  point_color <- if (method_name == "ADMIXTURE") {
+    colors["ADMIXED"]
+  } else {
+    colors[[method_name]]
+  }
+  
+  ggplot(df_plot, aes(qpAdm, method_val)) +
+    geom_point(alpha=0.8, size=1.5, color=point_color) +
+    geom_smooth(method="lm", se=FALSE, color="firebrick") +
+    geom_abline(slope=1, intercept=0, linetype="dashed") +
+    annotate("text",
+             x = 0.00, y = 0.70,
+             label = bquote(R == .(round(R_val, 2))),
+             hjust = 0, size = 3, fontface = "bold") +
+    annotate("text",
+             x = 0.00, y = 0.50,
+             label = bquote(beta == .(round(beta_val, 2))),
+             hjust = 0, size = 3, fontface = "bold") +
+    annotate("text",
+             x = 0.30, y = 0.10,
+             label = bquote(Delta == .(round(delta_val, 2))),
+             hjust = 0, size = 3, fontface = "bold") +
+    coord_cartesian(xlim=c(0,0.45), ylim=c(0,0.8)) +
+    theme_minimal() +
+    theme(
+      plot.margin = margin(2,2,2,2),
+      axis.title  = element_blank(),
+      axis.text   = element_text(size=6)
+    )
+}
+
+# BUILD PLOT MATRIX
+plot_matrix <- list()
+for(method in row_order){
+  for(panel in col_order){
+    paths <- panel_paths[[panel]]
+    method_subset <- panel_methods[[panel]]
+    
+    # read panel inputs
+    dfs <- map2(paths, method_subset, read_method_file)
+    
+    # get qpAdm df
+    qp_idx <- which(method_subset=="qpadm")
+    qp_df <- dfs[[qp_idx]]
+    colnames(qp_df) <- c("sample","global_ancestry_qpadm")
+    
+    # handle rows that don't exist
+    if(!(method %in% method_subset) || method=="qpadm"){
+      plot_matrix[[length(plot_matrix)+1]] <- ggplot() + theme_void()
+      next
+    }
+    
+    method_idx <- which(method_subset == method)
+    method_df <- dfs[[method_idx]]
+    plot_matrix[[length(plot_matrix)+1]] <- make_plot(qp_df, method_df, method)
+  }
+}
+
+# TOP AND LEFT LABELS
+top_labels <- lapply(col_order, function(lab) ggdraw() + draw_label(lab, fontface="bold", size=12))
+
+
+#try:
+row_labels <- c(
+  ADMIXTURE              = "ADMIXTURE",
+  ancestry_paths         = "AncestralPaths",
+  simplai                = "SimplAI",
+  rfmix                  = "RFMix",
+  rfmix_filtered         = "0.9 filtered",
+  mosaic                 = "MOSAIC",
+  mosaic_filtered        = "0.9 filtered",
+  ancestry_hmm           = "Ancestry HMM",
+  ancestry_hmm_filtered  = "0.9 filtered",
+  recombmix              = "RecombMix",
+  gnomix                 = "GNOMIX",
+  gnomix_filtered        = "0.9 filtered"
+)
+
+left_labels <- lapply(row_order, function(m) {
+  ggdraw() +
+    draw_label(
+      row_labels[[m]],
+      angle = 90,
+      fontface = "bold",
+      size = 10,
+      vjust = 0.1,
+      hjust = 0.5
+    )
+})
+
+
+
+# ASSEMBLE GRID
+panel_grid <- plot_grid(plotlist=plot_matrix, ncol=length(col_order), align="hv")
+with_top <- plot_grid(plot_grid(plotlist=top_labels, ncol=length(col_order)), panel_grid, ncol=1, rel_heights=c(0.06,1))
+final <- plot_grid(plot_grid(plotlist=left_labels, ncol=1), with_top, ncol=2, rel_widths=c(0.08,1))
+
+# SAVE
+ggsave("revison_FigureS2.pdf", final, width=8, height=12, units="in", dpi=300)
+```
+
+
+#Figure S3:
+
+```{r}
+
+#1kg 
+#Figure S3
+qpadm_path <- "../final_sup_figures_data/qpadm_individual_CEU.txt"
+
+# Load required libraries
+library(tidyverse)
+library(ggplot2)
+library(cowplot)
+
+# Base directories -- gnomix/recombmix live in a separate revision subfolder
+base_path <- "../final_sup_figures_data"
+revision_path <- "../final_sup_figures_data"
+
+# Dataset file names (with their source directory)
+dataset_files <- c(
+  "1kg_ancestryhmm_output_global_ancestry.txt",
+  "1kg_rfmix_output_global_ancestry.txt",
+  "1kg_mosaic_output_global_ancestry.txt",
+  "1kg_simplai_output_global_ancestry.txt",
+  "1kg_gnomix_output_global_ancestry.txt",
+  "1kg_recombmix_output_global_ancestry.txt"
+)
+
+dataset_dirs <- c(
+  base_path,
+  base_path,
+  base_path,
+  base_path,
+  revision_path,
+  revision_path
+)
+
+# Full dataset paths
+dataset_paths <- file.path(dataset_dirs, dataset_files)
+
+# Extract method names from first part of filename
+dataset_names <- gsub("_output_global_ancestry.txt", "", dataset_files)
+dataset_names <- gsub("^1kg_", "", dataset_names)
+
+# Function to read and rename
+read_and_process <- function(file_path, method_name) {
+  df <- read.table(file_path, header = TRUE)
+  colnames(df) <- c("sample", paste0("global_ancestry_", method_name))
+  return(df)
+}
+
+# Read LAI datasets
+dataset_list <- list()
+for (i in seq_along(dataset_paths)) {
+  dataset_list[[i]] <- read_and_process(dataset_paths[i], dataset_names[i])
+}
+
+# Read qpAdm separately
+qpadm_df <- read_and_process(qpadm_path, "qpadm")
+
+# Combine everything
+combined_df <- reduce(c(dataset_list, list(qpadm_df)), 
+                      function(x, y) full_join(x, y, by = "sample"))
+
+# Keep only relevant columns
+combined_df <- combined_df %>%
+  select(sample, starts_with("global_ancestry_"))
+
+# Remove NAs
+combined_df <- na.omit(combined_df)
+
+# Plot settings
+base_font_size <- 10
+plots <- list()
+qpAdm_vals <- combined_df[["global_ancestry_qpadm"]]
+
+for (method in dataset_names) {
+  
+  y_vals <- combined_df[[paste0("global_ancestry_", method)]]
+  df_plot <- data.frame(qpadm = qpAdm_vals, method_val = y_vals)
+  r_val <- cor(df_plot$qpadm, df_plot$method_val)
+  delta_val <- mean(abs(df_plot$method_val - df_plot$qpadm))
+  
+  fit <- lm(method_val ~ qpadm, data = df_plot)
+  beta_val <- coef(fit)[2]
+
+  p <- ggplot(df_plot, aes(x = qpadm, y = method_val)) +
+    geom_point(alpha = 0.8, color = "steelblue", size = 2) +
+    geom_smooth(method = "lm", color = "firebrick", se = FALSE, linewidth = 1.2) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", 
+                color = "black", linewidth = 1) +
+    annotate("text",
+             x = 0.00, y = 0.60,
+             label = bquote(R == .(round(r_val, 2))),
+             hjust = 0, size = 4, fontface = "bold") +
+    annotate("text",
+             x = 0.00, y = 0.50,
+             label = bquote(beta == .(round(beta_val, 2))),
+             hjust = 0, size = 4, fontface = "bold") +
+    annotate("text",
+             x = 0.30, y = 0.10,
+             label = bquote(Delta == .(round(delta_val, 2))),
+             hjust = 0, size = 4, fontface = "bold") +
+    labs(
+      x = "qpAdm",
+      y = "Global Ancestry",
+      title = method
+    ) +
+    theme_minimal(base_size = base_font_size) +
+    theme(
+      panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
+      plot.title = element_text(face = "bold", 
+                                size = base_font_size + 1, 
+                                hjust = 0.5),
+      axis.title = element_text(size = base_font_size + 2),
+      axis.text = element_text(size = base_font_size, color = "black"),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    ) +
+    coord_cartesian(xlim = c(0, 0.45), ylim = c(0, 0.7))
+
+  plots[[length(plots) + 1]] <- p
+}
+
+# Combine panels -- now 6 methods; ncol=2 gives 3 rows (kept consistent
+# with the original layout). Switch to ncol=3 for a 2x3 grid instead if
+# you'd rather it stay wider than tall.
+final_plot <- plot_grid(plotlist = plots, ncol = 2)
+
+# Save as Figure_S3
+ggsave("revision_FigureS3.pdf", final_plot, width = 6, height = 9, dpi = 300)
+
+```
+
+
+#Figure S4:
+
+```{r}
+
+# Load libraries
+library(tidyverse)
+library(ggplot2)
+library(cowplot)
+
+
+# Helper function
+
+read_file <- function(path, colname, remove_rnd = FALSE) {
+  df <- read.table(path, header = TRUE)
+  
+  # Standardize column names
+  colnames(df) <- c("sample", colname)
+  
+  # Remove _rnd if needed
+  if (remove_rnd) {
+    df$sample <- gsub("_rnd$", "", df$sample)
+  }
+  
+  return(df)
+}
+
+
+# Read datasets
+
+# ADMIXTURE
+admix_imp   <- read_file("../final_sup_figures_data/admixture_imputed.txt", "imputed")
+admix_unimp <- read_file("../final_sup_figures_data/admixture_unimputed.txt", "unimputed", remove_rnd = TRUE)
+admix_df <- inner_join(admix_unimp, admix_imp, by = "sample")
+# qpAdm
+qpadm_imp   <- read_file("../final_sup_figures_data/qpadm_imputed.txt", "imputed")
+qpadm_unimp <- read_file("../final_sup_figures_data/qpadm_unimputed.txt", "unimputed", remove_rnd = TRUE)
+qpadm_df <- inner_join(qpadm_unimp, qpadm_imp, by = "sample")
+# AncestryHMM
+ahmm_imp   <- read_file("../final_sup_figures_data/ancestry_hmm_output_global_ancestry.txt", "imputed")
+ahmm_unimp <- read_file("../final_sup_figures_data/ancestry_hmm_unimputed_full.txt", "unimputed", remove_rnd = TRUE)
+
+ahmm_df <- inner_join(ahmm_unimp, ahmm_imp, by = "sample")
+
+
+# Plotting function
+
+make_plot <- function(df, title_label) {
+  
+  r_val <- cor(df$unimputed, df$imputed)
+  delta_val <- mean(abs(df$imputed - df$unimputed))
+  fit <- lm(imputed ~ unimputed, data = df)
+  beta_val <- coef(fit)[2]
+  
+  mean_unimp <- mean(df$unimputed)
+  mean_imp   <- mean(df$imputed)
+  
+  ggplot(df, aes(x = unimputed, y = imputed)) +
+    geom_point(color = "steelblue", size = 2, alpha = 0.8) +
+    geom_smooth(method = "lm", color = "firebrick",
+                se = FALSE, linewidth = 1.2) +
+    geom_abline(slope = 1, intercept = 0,
+                linetype = "dashed", color = "black") +
+    annotate("text",
+             x = 0.00, y = 0.60,
+             label = bquote(R == .(round(r_val, 2))),
+             hjust = 0, size = 4, fontface = "bold") +
+    annotate("text",
+             x = 0.00, y = 0.50,
+             label = bquote(beta == .(round(beta_val, 2))),
+             hjust = 0, size = 4, fontface = "bold") +
+    annotate("text",
+             x = 0.30, y = 0.10,
+             label = bquote(Delta == .(round(delta_val, 3))),
+             hjust = 0, size = 4, fontface = "bold") +
+    annotate("text",
+         x = 0.00, y = 0.67,
+         label = bquote(bar(U) == .(round(mean_unimp, 3)) ~ "," ~ 
+                        bar(I) == .(round(mean_imp, 3))),
+         hjust = 0, size = 4, fontface = "bold") +
+    labs(
+      x = "Unimputed",
+      y = "Imputed",
+      title = title_label
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      panel.border = element_rect(color = "black", fill = NA),
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    ) +
+    coord_cartesian(xlim = c(0, 0.45), ylim = c(0, 0.7))
+}
+
+
+# Generate plots
+
+p1 <- make_plot(admix_df, "ADMIXTURE")
+p2 <- make_plot(qpadm_df, "qpAdm")
+p3 <- make_plot(ahmm_df, "AncestryHMM")
+
+final_plot <- plot_grid(p1, p2, p3, ncol = 3)
+
+ggsave("revision_FigureS4.pdf",
+       final_plot,
+       width = 6.5,
+       height = 3,
+       dpi = 300)
+
+```
+
+
+#Figure S5:
+
+```{r}
+# LOAD LIBRARIES
+library(tidyverse)
+library(cowplot)
+
+# FILE PATHS 
+
+sex_file <- "../final_sup_figures_data/sex_ploidy.txt"
+
+method_files <- c(
+  "../final_sup_figures_data/chr_x_admixture.txt",
+  "../final_sup_figures_data/chr_x_ancestryhmm.txt",
+  "../final_sup_figures_data/chr_x_mosaic.txt",
+  "../final_sup_figures_data/chr_x_simplai.txt",
+  "../final_sup_figures_data/chr_x_rfmix.txt",
+  "../final_sup_figures_data/chr_x_recombmix.txt",
+  "../final_sup_figures_data/chr_x_gnomix.txt"
+)
+# READ SEX FILE
+sex_df <- read.table(sex_file, header = FALSE, stringsAsFactors = FALSE)
+colnames(sex_df) <- c("sample", "ploidy", "ancestry_ref")
+
+sex_df <- sex_df %>%
+  mutate(
+    sex = factor(ploidy, levels = c(1, 2), labels = c("Male", "Female"))
+  )
+
+# READ METHOD FILES
+read_method <- function(file) {
+  method_name <- file %>%
+    basename() %>%
+    gsub("^chr_x_", "", .) %>%
+    gsub("\\.txt$", "", .)
+
+  df <- read.table(file, header = TRUE, stringsAsFactors = FALSE)
+  colnames(df) <- c("sample", "prop")
+
+  df %>%
+    mutate(method = method_name)
+}
+
+method_df <- map_dfr(method_files, read_method)
+
+# ADD QPADM
+qpadm_df <- read.table(
+  "../final_sup_figures_data/x_qpadm_global.txt",
+  header = TRUE,
+  stringsAsFactors = FALSE
+)
+colnames(qpadm_df) <- c("sample", "prop")
+
+qpadm_df <- qpadm_df %>%
+  mutate(method = "X_qpadm")
+
+method_df <- bind_rows(method_df, qpadm_df)
+
+# MERGE WITH SEX
+combined_df <- method_df %>%
+  inner_join(sex_df %>% select(sample, sex), by = "sample")
+
+# T-TESTS PER METHOD
+ttest_df <- combined_df %>%
+  group_by(method) %>%
+  summarise(
+    p_value = tryCatch(
+      t.test(prop ~ sex)$p.value,
+      error = function(e) NA_real_
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    p_label = ifelse(is.na(p_value),
+                     "p = NA",
+                     paste0("p = ", signif(p_value, 3)))
+  )
+
+combined_df <- combined_df %>%
+  left_join(ttest_df, by = "method")
+
+# PLOTTING FUNCTION
+plot_methods <- function(df, output_file) {
+
+  p <- ggplot(df, aes(x = sex, y = prop, color = sex)) +
+    geom_jitter(width = 0.2, size = 1.8, alpha = 0.8) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.3) +
+    facet_wrap(~ method, ncol = 3, scales = "free_y") +
+    scale_color_manual(values = c("Male" = "steelblue",
+                                  "Female" = "orange")) +
+    geom_text(
+      data = distinct(df, method, p_label),
+      aes(x = 1.5, y = Inf, label = p_label),
+      inherit.aes = FALSE,
+      vjust = 1.2,
+      size = 3.2
+    ) +
+    labs(
+      x = "Sex",
+      y = "X ancestry proportion",
+      color = "Sex"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      panel.border = element_rect(color = "black", fill = NA),
+      strip.text = element_text(face = "bold"),
+      legend.position = "bottom"
+    )
+
+  ggsave(output_file, p, width = 9, height = 7, dpi = 300)
+}
+
+# OUTPUT
+plot_methods(
+  combined_df,
+  output_file = "revision_FigureS5.pdf"
+)
+
+```
+
+
+#Figure S6:
+
+```{r}
+# LOAD LIBRARIES
+library(tidyverse)
+
+
+# FILE PATHS 
+
+base_path <- "../final_sup_figures_data/"
+
+inputs <- c(
+  paste0(base_path, "rfmix_chr23_sex_tracts_by_sex_and_ancestry.txt"),
+  paste0(base_path, "simplai_chr23_sex_tracts_by_sex_and_ancestry.txt"),
+  paste0(base_path, "mosaic_chr23_sex_tracts_by_sex_and_ancestry.txt"),
+  paste0(base_path, "ancestryhmm_chr23_sex_tracts_by_sex_and_ancestry.txt"),
+  paste0(base_path, "gnomix_chr23_sex_tracts_by_sex_and_ancestry.txt"),
+  paste0(base_path, "recombmix_chr23_sex_tracts_by_sex_and_ancestry.txt")
+)
+
+labels <- c("RFMix", "simpLAI", "Mosaic", "Ancestry HMM", "GNomix", "Recomb-Mix")
+
+
+# SETTINGS
+
+ancestry_labels <- list(
+  "1" = list(name = "Farmer", color = "tab:blue"),
+  "2" = list(name = "Hunter-gatherer", color = "tab:red")
+)
+
+
+# HELPERS
+
+load_tracts <- function(path, ancestry) {
+  df <- read.table(path, header = TRUE)
+
+  df <- df %>% filter(ancestry == !!ancestry)
+
+  males <- df %>%
+    filter(sex == "male") %>%
+    pull(tract_length_cm)
+
+  females <- df %>%
+    filter(sex == "female") %>%
+    pull(tract_length_cm)
+
+  # Optional filter (currently OFF, matches your Python script)
+  # males <- males[males >= 1]
+  # females <- females[females >= 1]
+
+  list(males = males, females = females)
+}
+
+qq_points <- function(x, y, min_n = 10, num_points = 100) {
+
+  x <- log10(x[x > 0])
+  y <- log10(y[y > 0])
+
+  if (length(x) < min_n || length(y) < min_n) {
+    return(NULL)
+  }
+
+  percentiles <- seq(0, 1, length.out = num_points + 2)[-c(1, num_points + 2)]
+
+  xq <- quantile(x, percentiles, na.rm = TRUE)
+  yq <- quantile(y, percentiles, na.rm = TRUE)
+
+  tibble(x = xq, y = yq)
+}
+
+
+# BUILD DATA FOR PLOTTING
+
+plot_data <- map2_dfr(inputs, labels, function(path, label) {
+
+  map_dfr(c(1, 2), function(anc) {
+
+    tracts <- load_tracts(path, anc)
+    qq <- qq_points(tracts$males, tracts$females)
+
+    if (is.null(qq)) return(NULL)
+
+    tibble(
+      method = label,
+      ancestry = ancestry_labels[[as.character(anc)]]$name,
+      color = ancestry_labels[[as.character(anc)]]$color,
+      x = qq$x,
+      y = qq$y
+    )
+  })
+})
+
+
+# GET GLOBAL LIMITS FOR DIAGONAL
+
+lims <- range(c(plot_data$x, plot_data$y), na.rm = TRUE)
+
+
+# PLOT
+
+p <- ggplot(plot_data, aes(x = x, y = y, color = ancestry)) +
+  geom_point(size = 0.8, alpha = 0.6) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", linewidth = 0.8) +
+  facet_wrap(~ method, ncol = 2, scales = "free") +
+  scale_color_manual(values = c(
+    "Farmer" = "#1f77b4",
+    "Hunter-gatherer" = "#d62728"
+  )) +
+  labs(
+    x = "Male log10 tract length (cM)",
+    y = "Female log10 tract length (cM)",
+    color = ""
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    strip.text = element_text(face = "bold", size = 10),
+    legend.position = "bottom"
+  )
+
+
+# SAVE
+ggsave("revision_FigureS6.pdf", p, width = 4.5, height = 4.5)
+
+```
+
+
+#Figure S7:
+
+```{r}
+library(tidyverse)
+
+df <- read.csv("../final_sup_figures_data/individual_correlations_binsize_100kb.csv")
+
+# sanity check
+stopifnot("Global_Ancestry" %in% colnames(df))
+stopifnot("Average_Correlation" %in% colnames(df))
+
+p <- ggplot(df %>% drop_na(Average_Correlation),
+            aes(x = Global_Ancestry, y = Average_Correlation)) +
+  geom_point(alpha = 0.7, size = 2, color = "#1f77b4") +
+  geom_smooth(method = "lm", se = TRUE, color = "#d62728", alpha = 0.3) +
+  labs(
+    x = "Global Ancestry",
+    y = "Average Local Ancestry Correlation"
+  ) +
+  theme_minimal(base_size = 12)
+
+ggsave("revision_FigureS7.pdf", p, width = 5, height = 4)
+```
+
+
+#Figure S8:
+
+```{r}
+
+library(tidyverse)
+library(reshape2)
+library(RColorBrewer)
+
+# Read matrix
+
+cor_mat <- as.matrix(read.table("../final_sup_figures_data/1kg_LA_correlation_matrix_binsize_100kb.txt",
+                                header = TRUE,
+                                row.names = 1))
+
+# Rename methods
+rename_methods <- c(
+  AVG_ancestry_hmm = "AncestryHMM",
+  AVG_mosaic       = "MOSAIC",
+  AVG_rfmix        = "RFMix",
+  AVG_simpLAI      = "simpLAI",
+  AVG_recombmix    = "Recomb-Mix",
+  AVG_gnomix       = "Gnomix"
+)
+
+rownames(cor_mat) <- rename_methods[rownames(cor_mat)]
+colnames(cor_mat) <- rename_methods[colnames(cor_mat)]
+
+# Cluster methods
+hc <- hclust(as.dist(1 - cor_mat), method = "average")
+ord <- hc$labels[hc$order]
+
+cor_mat <- cor_mat[ord, ord]
+
+# Convert to long format
+cor_df <- melt(cor_mat, varnames = c("Method1", "Method2"),
+               value.name = "Correlation")
+
+cor_df$Method1 <- factor(cor_df$Method1, levels = ord)
+cor_df$Method2 <- factor(cor_df$Method2, levels = rev(ord))
+
+# Plot
+p <- ggplot(cor_df,
+            aes(Method1, Method2, fill = Correlation)) +
+  geom_tile(color = "white", linewidth = 0.4) +
+  geom_text(aes(label = sprintf("%.2f", Correlation)),
+            size = 3.3) +
+  scale_fill_gradient(
+  low = "#F7FBFF",
+  high = "#6BAED6",
+  limits = c(0,1),
+  guide = "none"
+) +
+  coord_equal() +
+  theme_classic(base_size = 11) +
+  theme(
+    axis.title = element_blank(),
+    axis.text.x = element_text(angle = 45,
+                               hjust = 1,
+                               vjust = 1),
+    axis.text = element_text(color = "black"),
+    panel.grid = element_blank()
+  )
+
+ggsave("revision_FigureS8.pdf", p, width = 5, height = 5)
+
+```
+
+
+#Figure S9:
+
+```{r}
+library(tidyverse)
+library(grid)
+
+# ---------------------------------------------------------------
+# FILE
+# ---------------------------------------------------------------
+
+farmer_file <- "../final_figures_data/farmer_combined_tract_data.txt"
+
+
+# ---------------------------------------------------------------
+# COLORS
+# ---------------------------------------------------------------
+
+method_colors <- c(
+  "rfmix" = "red",
+  "simplai" = "#e377c2",
+  "mosaic" = "green",
+  "gnomix" = "#8B4513",
+  "recombmix" = "#B8860B",
+  "ancestry_paths" = "#ff7f0e",
+  "ancestry_hmm" = "#1f77b4"
+)
+
+
+method_names <- c(
+  "rfmix" = "RFMix (7v7)",
+  "simplai" = "simpLAI (7v3)",
+  "mosaic" = "Mosaic (7v3)",
+  "gnomix" = "Gnomix (7v7)",
+  "recombmix" = "Recomb-Mix (7v7)",
+  "ancestry_paths" = "AncestralPaths (7v48)",
+  "ancestry_hmm" = "Ancestry HMM (7v7)"
+)
+
+
+# ---------------------------------------------------------------
+# READ FARMER TRACTS
+# ---------------------------------------------------------------
+
+farmer <- read.table(
+  farmer_file,
+  header = TRUE,
+  stringsAsFactors = FALSE
+)
+
+
+# Rename ancestry_hmm source
+farmer$Source <- gsub(
+  "ancestry_hmm_haplotypes",
+  "ancestry_hmm",
+  farmer$Source
+)
+
+
+# Remove zero lengths
+farmer <- farmer %>%
+  filter(tract_length_cm > 0)
+
+
+# ---------------------------------------------------------------
+# BIN EMPIRICAL TRACTS
+# ---------------------------------------------------------------
+
+bin_edges <- logspace <- 10^seq(
+  log10(0.5),
+  log10(1000),
+  length.out = 60
+)
+
+bin_centers <- (bin_edges[-1] + bin_edges[-length(bin_edges)]) / 2
+
+
+farmer <- farmer %>%
+  mutate(
+    bin = cut(
+      tract_length_cm,
+      breaks = bin_edges,
+      include.lowest = TRUE,
+      labels = FALSE
+    )
+  ) %>%
+  filter(!is.na(bin))
+
+
+empirical <- farmer %>%
+  count(Source, bin) %>%
+  group_by(Source) %>%
+  mutate(
+    proportion = n / sum(n),
+    bin_center = bin_centers[bin]
+  ) %>%
+  ungroup()
+
+
+# ---------------------------------------------------------------
+# THEORY CURVES
+# ---------------------------------------------------------------
+
+p_farmer <- 0.6   # complementary to HG=0.4
+
+T_values <- c(10,20,50,100,200)
+
+
+theory <- expand_grid(
+  T = T_values,
+  bin = seq_along(bin_centers)
+) %>%
+  mutate(
+    bin_start = bin_edges[bin],
+    bin_end = bin_edges[bin+1],
+    lambda = (T*(1-p_farmer))/100,
+    proportion = exp(-lambda*bin_start) -
+                 exp(-lambda*bin_end),
+    bin_center = bin_centers[bin]
+  )
+
+
+# ---------------------------------------------------------------
+# PLOT
+# ---------------------------------------------------------------
+
+p <- ggplot() +
+
+  # theory curves
+  geom_line(
+    data = theory,
+    aes(
+      x = bin_center,
+      y = proportion,
+      group = T
+    ),
+    color = "black",
+    linewidth = 0.4
+  ) +
+
+  # empirical farmer tracts
+  geom_point(
+    data = empirical,
+    aes(
+      x = bin_center,
+      y = proportion,
+      color = Source
+    ),
+    shape = 17,
+    size = 2,
+    alpha = 0.85
+  ) +
+
+  scale_color_manual(
+    values = method_colors,
+    labels = method_names
+  ) +
+
+  scale_x_continuous(
+    limits = c(0,250),
+    breaks = c(0,50,100,150,200,250)
+  ) +
+
+  scale_y_log10(
+    limits = c(1e-5,1e-1)
+  ) +
+
+  labs(
+    x = "Tract Length (cM)",
+    y = "Proportion",
+    color = NULL
+  ) +
+
+  theme_bw(base_size = 12) +
+
+theme(
+  panel.grid.minor = element_blank(),
+
+  # move legend to upper-right
+  legend.position = c(0.97, 0.97),
+  legend.justification = c("right", "top"),
+
+  # tighten legend spacing
+  legend.text = element_text(size = 9),
+  legend.key.height = unit(0.25, "cm"),
+  legend.key.width = unit(0.25, "cm"),
+  legend.spacing.y = unit(0.02, "cm"),
+  legend.margin = margin(0, 0, 0, 0),
+
+  axis.text = element_text(size = 9),
+  axis.title = element_text(size = 10)
+)
+
+
+# ---------------------------------------------------------------
+# SAVE
+# ---------------------------------------------------------------
+
+ggsave(
+  "revision_FigureS9.pdf",
+  p,
+  width = 5.5,
+  height = 5.5,
+  units = "in"
+)
+
+```
+
+
+#Figure S10:
+
+```{r}
+
+hg_tracts <- read.table("../final_figures_data/chrx_hg_combined_tract_data.txt", header = TRUE)
+farmer_tracts <- read.table("../final_figures_data/chrx_farmer_combined_tract_data.txt", header = TRUE)
+
+
+# Combined analysis for both populations
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(grid)
+library(patchwork)  # Add this library for better plot combining
+
+# Function to create plot data for a given population
+create_plot_data <- function(pop_data, pop_name) {
+  # Log-spaced bins from 1 to 1000 cM
+  bin_edges <- 10^seq(log10(0.5), log10(1000), length.out = 60)
+  
+  # Filter out zeros and negative (tract length must be >0 for log binning)
+  filtered_data <- pop_data %>%
+    filter(tract_length_cm > 0)
+  
+  # Assign each tract to a bin
+  filtered_data <- filtered_data %>%
+    mutate(bin = cut(tract_length_cm, breaks = bin_edges, include.lowest = TRUE, right = FALSE))
+  
+  # Create a lookup table for bin centers
+  bin_centers <- data.frame(
+    bin = levels(cut(1, breaks = bin_edges, include.lowest = TRUE, right = FALSE)),
+    bin_start = bin_edges[-length(bin_edges)],
+    bin_end = bin_edges[-1]
+  ) %>%
+    mutate(bin_center = (bin_start + bin_end) / 2)
+  
+  # Population proportions
+  p_farmer <- 0.6
+  p_hg <- 0.4
+  
+  # Summarize counts per Source and bin
+  binned_summary <- filtered_data %>%
+    group_by(Source, bin) %>%
+    summarise(count = n(), .groups = 'drop') %>%
+    left_join(bin_centers, by = "bin") %>%
+    filter(!is.na(bin_center))
+  
+  # Calculate total tracts per Source for empirical datasets
+  total_counts_per_source <- binned_summary %>%
+    group_by(Source) %>%
+    summarise(total_count = sum(count))
+  
+  # Add proportion column for empirical data
+  binned_summary <- binned_summary %>%
+    left_join(total_counts_per_source, by = "Source") %>%
+    mutate(proportion = count / total_count)
+  
+  # Define scaling factor based on population proportion
+  p_pop <- ifelse(pop_name == "hg", p_hg, 
+                  ifelse(pop_name == "farmer", p_farmer, NA))
+  
+  if (is.na(p_pop)) {
+    stop("Population must be 'hg' or 'farmer' for theoretical scaling.")
+  }
+  
+  # Generate continuous theoretical curves
+  T_values <- seq(10, 200, by = 5)  # More continuous T values
+  
+  theoretical_data <- data.frame()
+  
+  # Define cutoff probability and calculate corresponding x-value for each T
+  cutoff_prob <- 1e-5
+  
+  for (T in T_values) {
+    lambda_rate <- (T * (1 - p_pop)) / 100
+    
+    # Calculate x-value where probability drops to cutoff_prob
+    # For exponential: prob = exp(-lambda * x), so x = -log(prob) / lambda
+    cutoff_x <- -log(cutoff_prob) / lambda_rate
+    
+    # Filter bin_centers to only include those up to cutoff_x
+    filtered_bins <- bin_centers %>%
+      filter(bin_center <= cutoff_x)
+    
+    # Add the exact cutoff point
+    if(nrow(filtered_bins) > 0) {
+      theory_bin_data <- filtered_bins %>%
+        mutate(
+          bin_probability = (exp(-lambda_rate * bin_start) - exp(-lambda_rate * bin_end)),
+          Source = paste0("Theory T=", T),
+          T_value = T
+        )
+      
+      # Add the exact cutoff point
+      cutoff_point <- data.frame(
+        bin = NA,
+        bin_start = cutoff_x,
+        bin_end = cutoff_x,
+        bin_center = cutoff_x,
+        bin_probability = cutoff_prob,
+        Source = paste0("Theory T=", T),
+        T_value = T
+      )
+      
+      theory_bin_data <- rbind(theory_bin_data, cutoff_point)
+      theoretical_data <- rbind(theoretical_data, theory_bin_data)
+    }
+  }
+  
+  # Rename methods for colors
+  change_color_names <- c(
+    "rfmix" = "rfmix",
+    "ancestry_paths" = "ancestry_paths",
+    "ancestry_hmm_haplotypes" = "ancestry_hmm",
+    "simplai" = "simplai",
+    "mosaic" = "mosaic",
+    "recombmix" = "recombmix",
+  "gnomix" = "gnomix"
+  )
+  
+  binned_summary$Source <- sapply(binned_summary$Source, function(x) {
+    if (x %in% names(change_color_names)) {
+      change_color_names[[x]]
+    } else {
+      x
+    }
+  })
+  
+  # Combine empirical and theoretical data
+  empirical_data <- binned_summary %>% 
+    select(Source, bin_center, proportion) %>% 
+    rename(value = proportion) %>%
+    mutate(type = "empirical")
+  
+  theoretical_plot_data <- theoretical_data %>% 
+    select(Source, bin_center, bin_probability, T_value) %>% 
+    rename(value = bin_probability) %>%
+    mutate(type = "theoretical")
+  
+  # Filter theoretical data to only keep points with value >= 1e-5 (cutoff just below 0.00001)
+  theoretical_plot_data <- theoretical_plot_data %>%
+    filter(value >= 1e-5)
+  
+  list(empirical = empirical_data, theoretical = theoretical_plot_data)
+}
+
+# Create plot function
+create_individual_plot <- function(plot_data_list, pop_name, y_limits, x_limits, show_x_title = TRUE, show_title = TRUE, point_shape = 16) {
+  empirical_data <- plot_data_list$empirical
+  theoretical_data <- plot_data_list$theoretical
+  
+  # Method names for labeling
+method_names <- c(
+  "rfmix" = "RFMix",
+  "ancestry_paths" = "AncestralPaths",
+  "ancestry_hmm" = "Ancestry HMM",
+  "simplai" = "SimpLAI",
+  "mosaic" = "Mosaic",
+  "recombmix" = "Recomb-Mix",
+  "gnomix" = "Gnomix"
+)
+  
+  # Get empirical sources
+  empirical_sources <- unique(empirical_data$Source)
+  
+  # Create base plot
+  x_title <- if(show_x_title) "Tract Length (cM)" else ""
+  
+  p <- ggplot() +
+    # Add theoretical curves for selected T values
+    geom_line(data = theoretical_data %>% filter(T_value %in% c(10, 20, 50, 100, 200)),
+              aes(x = bin_center, y = value, group = T_value),
+              color = "black", linewidth = 0.9, alpha = 0.8) +
+    
+    # Add empirical data points
+    geom_point(data = empirical_data, 
+               aes(x = bin_center, y = value, color = Source),
+               shape = point_shape,
+               alpha = 0.8, size = 1) +
+    
+    scale_x_log10(name = x_title, 
+                  limits = x_limits,  # Use consistent x limits
+                  breaks = c(1, 5, 20, 100, 500),
+                  labels = c("1", "5", "20", "100", "500")) +
+    scale_y_log10(name = "Proportion", 
+                  limits = y_limits,
+                  labels = scales::label_number(accuracy = 0.00001, trim = TRUE)) +
+    
+    scale_color_manual(values = colors[empirical_sources]) +
+    theme_minimal() +
+theme(
+  legend.position = "right",
+  legend.title = element_blank(),
+  legend.text = element_text(size = 7),
+  legend.key.size = unit(0.3, "cm"),
+  axis.title = element_text(size = 8),
+  axis.text = element_text(size = 7),
+  plot.margin = margin(t = 1, r = 5, b = -1, l = 3),
+  panel.grid.minor = element_blank()
+)
+  
+  # Add T value labels at the end of each curve (find the maximum x for each T line)
+  theory_label_data <- theoretical_data %>%
+    filter(T_value %in% c(10, 20, 50, 100, 200)) %>%
+    group_by(T_value) %>%
+    filter(bin_center == max(bin_center)) %>%
+    ungroup()
+  
+# ---- T labels (smaller text) ----
+p <- p + geom_text(
+  data = theory_label_data,
+  aes(x = bin_center, y = value, label = paste0("T=", T_value)),
+  hjust = -0.05,
+  vjust = 0.5,
+  size = 1.8,
+  color = "black"
+)
+
+
+
+
+  # Add panel label only if requested
+  if(show_title) {
+    panel_label <- ifelse(pop_name == "hg", "Hunter-Gatherer", "Farmer")
+    p <- p + ggtitle(panel_label) +
+      theme(plot.title = element_text(hjust = 0, size = 7, face = "bold"))
+  }
+  
+  return(p)
+}
+
+# Process both populations
+hg_plot_data <- create_plot_data(hg_tracts, "hg")
+farmer_plot_data <- create_plot_data(farmer_tracts, "farmer")
+
+# Determine common y-axis and x-axis limits
+all_empirical_values <- c(hg_plot_data$empirical$value, farmer_plot_data$empirical$value)
+all_theoretical_values <- c(hg_plot_data$theoretical$value, farmer_plot_data$theoretical$value)
+all_values <- c(all_empirical_values, all_theoretical_values)
+
+# Set consistent limits
+y_limits <- c(min(all_values) * 0.9, max(all_values) * 1.2)
+
+# Get x-axis limits from both datasets
+all_x_values <- c(hg_plot_data$empirical$bin_center, farmer_plot_data$empirical$bin_center,
+                  hg_plot_data$theoretical$bin_center, farmer_plot_data$theoretical$bin_center)
+x_limits <- c(min(all_x_values) * 0.9, max(all_x_values) * 1.1)
+
+# Create individual plots with consistent limits
+p_hg <- create_individual_plot(hg_plot_data, "hg", y_limits, x_limits, 
+                              show_x_title = FALSE, show_title = FALSE, point_shape = 17)  # Triangle
+p_farmer <- create_individual_plot(farmer_plot_data, "farmer", y_limits, x_limits, 
+                                  show_x_title = TRUE, show_title = FALSE, point_shape = 15)  # Square
+
+# Combine plots using patchwork
+combined_plot <- p_hg / p_farmer
+combined_plot <- p_hg / p_farmer +
+  plot_layout(
+    heights = c(1,1),
+    guides = "collect"
+  ) &
+  theme(
+    legend.position = "right",
+    legend.title = element_blank(),
+    legend.text = element_text(size = 7),
+    legend.key.size = unit(0.3, "cm"),
+    plot.margin = margin(1,2,0.3,2)
+  )
+
+# Save the plot
+ggsave("revision_FigureS10.pdf", combined_plot, width = 4.5, height = 4)
+
+```
+
+
+
+#Figure S11:
+
+```{r}
+
+hg_tracts <- read.table("../final_sup_figures_data/1kg_hg_combined_tract_data.txt", header = TRUE)
+farmer_tracts <- read.table("../final_sup_figures_data/1kg_farmer_combined_tract_data.txt", header = TRUE)
+
+
+# Combined analysis for both populations
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(grid)
+library(patchwork)  # Add this library for better plot combining
+
+# Function to create plot data for a given population
+create_plot_data <- function(pop_data, pop_name) {
+  # Log-spaced bins from 1 to 1000 cM
+  bin_edges <- 10^seq(log10(0.5), log10(1000), length.out = 60)
+  
+  # Filter out zeros and negative (tract length must be >0 for log binning)
+  filtered_data <- pop_data %>%
+    filter(tract_length_cm > 0)
+  
+  # Assign each tract to a bin
+  filtered_data <- filtered_data %>%
+    mutate(bin = cut(tract_length_cm, breaks = bin_edges, include.lowest = TRUE, right = FALSE))
+  
+  # Create a lookup table for bin centers
+  bin_centers <- data.frame(
+    bin = levels(cut(1, breaks = bin_edges, include.lowest = TRUE, right = FALSE)),
+    bin_start = bin_edges[-length(bin_edges)],
+    bin_end = bin_edges[-1]
+  ) %>%
+    mutate(bin_center = (bin_start + bin_end) / 2)
+  
+  # Population proportions
+  p_farmer <- 0.6
+  p_hg <- 0.4
+  
+  # Summarize counts per Source and bin
+  binned_summary <- filtered_data %>%
+    group_by(Source, bin) %>%
+    summarise(count = n(), .groups = 'drop') %>%
+    left_join(bin_centers, by = "bin") %>%
+    filter(!is.na(bin_center))
+  
+  # Calculate total tracts per Source for empirical datasets
+  total_counts_per_source <- binned_summary %>%
+    group_by(Source) %>%
+    summarise(total_count = sum(count))
+  
+  # Add proportion column for empirical data
+  binned_summary <- binned_summary %>%
+    left_join(total_counts_per_source, by = "Source") %>%
+    mutate(proportion = count / total_count)
+  
+  # Define scaling factor based on population proportion
+  p_pop <- ifelse(pop_name == "hg", p_hg, 
+                  ifelse(pop_name == "farmer", p_farmer, NA))
+  
+  if (is.na(p_pop)) {
+    stop("Population must be 'hg' or 'farmer' for theoretical scaling.")
+  }
+  
+  # Generate continuous theoretical curves
+  T_values <- seq(10, 200, by = 5)  # More continuous T values
+  
+  theoretical_data <- data.frame()
+  
+  # Define cutoff probability and calculate corresponding x-value for each T
+  cutoff_prob <- 1e-5
+  
+  for (T in T_values) {
+    lambda_rate <- (T * (1 - p_pop)) / 100
+    
+    # Calculate x-value where probability drops to cutoff_prob
+    # For exponential: prob = exp(-lambda * x), so x = -log(prob) / lambda
+    cutoff_x <- -log(cutoff_prob) / lambda_rate
+    
+    # Filter bin_centers to only include those up to cutoff_x
+    filtered_bins <- bin_centers %>%
+      filter(bin_center <= cutoff_x)
+    
+    # Add the exact cutoff point
+    if(nrow(filtered_bins) > 0) {
+      theory_bin_data <- filtered_bins %>%
+        mutate(
+          bin_probability = (exp(-lambda_rate * bin_start) - exp(-lambda_rate * bin_end)),
+          Source = paste0("Theory T=", T),
+          T_value = T
+        )
+      
+      # Add the exact cutoff point
+      cutoff_point <- data.frame(
+        bin = NA,
+        bin_start = cutoff_x,
+        bin_end = cutoff_x,
+        bin_center = cutoff_x,
+        bin_probability = cutoff_prob,
+        Source = paste0("Theory T=", T),
+        T_value = T
+      )
+      
+      theory_bin_data <- rbind(theory_bin_data, cutoff_point)
+      theoretical_data <- rbind(theoretical_data, theory_bin_data)
+    }
+  }
+  
+  # Rename methods for colors
+  change_color_names <- c(
+    "rfmix" = "rfmix",
+    "ancestry_paths" = "ancestry_paths",
+    "ancestry_hmm_haplotypes" = "ancestry_hmm",
+    "simplai" = "simplai",
+    "mosaic" = "mosaic",
+    "recombmix" = "recombmix",
+  "gnomix" = "gnomix"
+  )
+  
+  binned_summary$Source <- sapply(binned_summary$Source, function(x) {
+    if (x %in% names(change_color_names)) {
+      change_color_names[[x]]
+    } else {
+      x
+    }
+  })
+  
+  # Combine empirical and theoretical data
+  empirical_data <- binned_summary %>% 
+    select(Source, bin_center, proportion) %>% 
+    rename(value = proportion) %>%
+    mutate(type = "empirical")
+  
+  theoretical_plot_data <- theoretical_data %>% 
+    select(Source, bin_center, bin_probability, T_value) %>% 
+    rename(value = bin_probability) %>%
+    mutate(type = "theoretical")
+  
+  # Filter theoretical data to only keep points with value >= 1e-5 (cutoff just below 0.00001)
+  theoretical_plot_data <- theoretical_plot_data %>%
+    filter(value >= 1e-5)
+  
+  list(empirical = empirical_data, theoretical = theoretical_plot_data)
+}
+
+# Create plot function
+create_individual_plot <- function(plot_data_list, pop_name, y_limits, x_limits, show_x_title = TRUE, show_title = TRUE, point_shape = 16) {
+  empirical_data <- plot_data_list$empirical
+  theoretical_data <- plot_data_list$theoretical
+  
+  # Method names for labeling
+method_names <- c(
+  "rfmix" = "RFMix",
+  "ancestry_paths" = "AncestralPaths",
+  "ancestry_hmm" = "Ancestry HMM",
+  "simplai" = "SimpLAI",
+  "mosaic" = "Mosaic",
+  "recombmix" = "Recomb-Mix",
+  "gnomix" = "Gnomix"
+)
+  
+  # Get empirical sources
+  empirical_sources <- unique(empirical_data$Source)
+  
+  # Create base plot
+  x_title <- if(show_x_title) "Tract Length (cM)" else ""
+  
+  p <- ggplot() +
+    # Add theoretical curves for selected T values
+    geom_line(data = theoretical_data %>% filter(T_value %in% c(10, 20, 50, 100, 200)),
+              aes(x = bin_center, y = value, group = T_value),
+              color = "black", linewidth = 0.9, alpha = 0.8) +
+    
+    # Add empirical data points
+    geom_point(data = empirical_data, 
+               aes(x = bin_center, y = value, color = Source),
+               shape = point_shape,
+               alpha = 0.8, size = 1) +
+    
+    scale_x_log10(name = x_title, 
+                  limits = x_limits,  # Use consistent x limits
+                  breaks = c(1, 5, 20, 100, 500),
+                  labels = c("1", "5", "20", "100", "500")) +
+    scale_y_log10(name = "Proportion", 
+                  limits = y_limits,
+                  labels = scales::label_number(accuracy = 0.00001, trim = TRUE)) +
+    
+    scale_color_manual(values = colors[empirical_sources]) +
+    theme_minimal() +
+theme(
+  legend.position = "right",
+  legend.title = element_blank(),
+  legend.text = element_text(size = 7),
+  legend.key.size = unit(0.3, "cm"),
+  axis.title = element_text(size = 8),
+  axis.text = element_text(size = 7),
+  plot.margin = margin(t = 1, r = 5, b = -1, l = 3),
+  panel.grid.minor = element_blank()
+)
+  
+  # Add T value labels at the end of each curve (find the maximum x for each T line)
+  theory_label_data <- theoretical_data %>%
+    filter(T_value %in% c(10, 20, 50, 100, 200)) %>%
+    group_by(T_value) %>%
+    filter(bin_center == max(bin_center)) %>%
+    ungroup()
+  
+# ---- T labels (smaller text) ----
+p <- p + geom_text(
+  data = theory_label_data,
+  aes(x = bin_center, y = value, label = paste0("T=", T_value)),
+  hjust = -0.05,
+  vjust = 0.5,
+  size = 1.8,
+  color = "black"
+)
+
+
+
+
+  # Add panel label only if requested
+  if(show_title) {
+    panel_label <- ifelse(pop_name == "hg", "Hunter-Gatherer", "Farmer")
+    p <- p + ggtitle(panel_label) +
+      theme(plot.title = element_text(hjust = 0, size = 7, face = "bold"))
+  }
+  
+  return(p)
+}
+
+# Process both populations
+hg_plot_data <- create_plot_data(hg_tracts, "hg")
+farmer_plot_data <- create_plot_data(farmer_tracts, "farmer")
+
+# Determine common y-axis and x-axis limits
+all_empirical_values <- c(hg_plot_data$empirical$value, farmer_plot_data$empirical$value)
+all_theoretical_values <- c(hg_plot_data$theoretical$value, farmer_plot_data$theoretical$value)
+all_values <- c(all_empirical_values, all_theoretical_values)
+
+# Set consistent limits
+y_limits <- c(min(all_values) * 0.9, max(all_values) * 1.2)
+
+# Get x-axis limits from both datasets
+all_x_values <- c(hg_plot_data$empirical$bin_center, farmer_plot_data$empirical$bin_center,
+                  hg_plot_data$theoretical$bin_center, farmer_plot_data$theoretical$bin_center)
+x_limits <- c(min(all_x_values) * 0.9, max(all_x_values) * 1.1)
+
+# Create individual plots with consistent limits
+p_hg <- create_individual_plot(hg_plot_data, "hg", y_limits, x_limits, 
+                              show_x_title = FALSE, show_title = FALSE, point_shape = 17)  # Triangle
+p_farmer <- create_individual_plot(farmer_plot_data, "farmer", y_limits, x_limits, 
+                                  show_x_title = TRUE, show_title = FALSE, point_shape = 15)  # Square
+
+# Combine plots using patchwork
+combined_plot <- p_hg / p_farmer
+combined_plot <- p_hg / p_farmer +
+  plot_layout(
+    heights = c(1,1),
+    guides = "collect"
+  ) &
+  theme(
+    legend.position = "right",
+    legend.title = element_blank(),
+    legend.text = element_text(size = 7),
+    legend.key.size = unit(0.3, "cm"),
+    plot.margin = margin(1,2,0.3,2)
+  )
+
+# Save the plot
+ggsave("revision_FigureS11.pdf", combined_plot, width = 4.5, height = 4)
+
+```
+
+
+#Figure S12:
+
+```{r}
+
+library(tidyverse)
+library(cowplot)
+
+# ==========================================================
+# INPUT FILES
+# ==========================================================
+
+discovery_file  <- "../final_figures_data/combined_weighted_z_scores.txt"
+replication_file <- "../final_sup_figures_data/x_rep_combined_weighted_z_scores.txt"
+
+# Only X:97.95 Mb region
+regions <- matrix(
+  c(
+    23, 97945412
+  ),
+  ncol = 2,
+  byrow = TRUE
+)
+colnames(regions) <- c("CHR", "POS")
+
+window_size <- 10e6
+
+
+# ==========================================================
+# LOAD DATA
+# ==========================================================
+
+z_score_data <- read.table(discovery_file, header = TRUE) %>%
+  dplyr::select(CHR, POS, weighted_z)
+
+rep_z_score_data <- read.table(replication_file, header = TRUE) %>%
+  dplyr::select(CHR, POS, weighted_z)
+
+
+# ==========================================================
+# PLOT FUNCTION
+# ==========================================================
+
+make_chr_plot <- function(chrom, midpoint, show_legend = FALSE) {
+
+  rep_subset <- rep_z_score_data %>%
+    filter(
+      CHR == chrom,
+      POS >= (midpoint - window_size),
+      POS <= (midpoint + window_size)
+    ) %>%
+    mutate(dataset = "Replication")
+
+  disc_subset <- z_score_data %>%
+    filter(
+      CHR == chrom,
+      POS >= (midpoint - window_size),
+      POS <= (midpoint + window_size)
+    ) %>%
+    mutate(dataset = "Discovery")
+
+  combined <- bind_rows(rep_subset, disc_subset)
+
+  combined <- combined %>%
+    mutate(POS_MB = POS / 1e6)
+
+  ggplot(
+    combined,
+    aes(
+      x = POS_MB,
+      y = weighted_z,
+      color = dataset
+    )
+  ) +
+    geom_point(size = 0.6, alpha = 0.8) +
+
+    geom_hline(
+      yintercept = c(-3, 3),
+      linewidth = 0.4,
+      colour = "black"
+    ) +
+
+    geom_hline(
+      yintercept = c(-1.96, 1.96),
+      linetype = "dashed",
+      linewidth = 0.4,
+      colour = "black"
+    ) +
+
+    scale_color_manual(
+      values = c(
+        Discovery = "purple4",
+        Replication = "#56B4E9"
+      )
+    ) +
+
+    labs(
+      title = paste0("Chr ", chrom, " (", round(midpoint / 1e6, 2), " Mb)"),
+      x = "Position (Mb)",
+      y = "Weighted Z-score",
+      color = NULL
+    ) +
+
+    theme_minimal(base_size = 10) +
+
+    theme(
+      plot.title = element_text(
+        hjust = 0.5,
+        face = "bold"
+      ),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid.minor = element_blank(),
+      legend.position = if (show_legend) "right" else "none"
+    )
+}
+
+
+# ==========================================================
+# BUILD FIGURE
+# ==========================================================
+
+plot1 <- make_chr_plot(
+  regions[1,1],
+  regions[1,2],
+  show_legend = FALSE
+)
+
+legend <- cowplot::get_legend(
+  make_chr_plot(
+    regions[1,1],
+    regions[1,2],
+    show_legend = TRUE
+  )
+)
+
+final_plot <- plot_grid(
+  plot1,
+  legend,
+  rel_widths = c(1, 0.28)
+)
+
+
+# ==========================================================
+# SAVE
+# ==========================================================
+
+ggsave(
+  "revision_FigureS12.pdf",
+  final_plot,
+  width = 5,
+  height = 3,
+  dpi = 300
+)
+
+```
+
+
+
+#Figure S13
+
+```{r}
+library(tidyverse)
+library(cowplot)
+
+# ==========================================================
+# FILES
+# ==========================================================
+
+dataset_paths <- c(
+  "../final_sup_figures_data/ancestry_hmm_average_ancestry_output.txt",
+  "../final_sup_figures_data/rfmix_average_ancestry_output.txt",
+  "../final_sup_figures_data/simplai_average_ancestry_output.txt",
+  "../final_sup_figures_data/mosaic_average_ancestry_output.txt",
+  "../final_sup_figures_data/recombmix_average_ancestry_output.txt",
+  "../final_sup_figures_data/gnomix_average_ancestry_output.txt"
+)
+
+dataset_names <- c(
+  "ancestry_hmm",
+  "rfmix",
+  "simplai",
+  "mosaic",
+  "recombmix",
+  "gnomix"
+)
+
+# Only X chromosome signal
+regions <- matrix(
+  c(
+    23, 97945412
+  ),
+  ncol = 2,
+  byrow = TRUE
+)
+colnames(regions) <- c("CHR", "POS")
+
+
+# ==========================================================
+# COLORS
+# ==========================================================
+
+method_colors <- c(
+  ancestry_hmm = "#1f77b4",
+  rfmix        = "#d62728",
+  simplai      = "#e377c2",
+  mosaic       = "#2ca02c",
+  recombmix    = "#B8860B",
+  gnomix       = "#8B4513"
+)
+
+
+# ==========================================================
+# READ DATA
+# ==========================================================
+
+compute_zscore <- function(data) {
+  data$new_z <- as.numeric(scale(data$HGall))
+  data
+}
+
+read_dataset <- function(path, name) {
+
+  df <- read.table(path, header = TRUE)
+  colnames(df) <- c("CHR", "POS", "HGall")
+
+  df <- df[order(df$CHR, df$POS), ]
+
+  window_size <- 51
+  out <- list()
+
+  for (chr in unique(df$CHR)) {
+
+    chr_data <- df[df$CHR == chr, ]
+    n <- nrow(chr_data)
+
+    means <- sapply(seq_len(n), function(i) {
+
+      end <- min(i + window_size - 1, n)
+
+      mean(chr_data$HGall[i:end], na.rm = TRUE)
+
+    })
+
+    out[[as.character(chr)]] <- data.frame(
+      CHR = chr_data$CHR,
+      POS = chr_data$POS,
+      HGall = means,
+      dataset = name
+    )
+  }
+
+  out <- bind_rows(out)
+
+  compute_zscore(out)
+}
+
+full_dataset <- bind_rows(
+
+  lapply(seq_along(dataset_paths), function(i) {
+
+    read_dataset(dataset_paths[i], dataset_names[i])
+
+  })
+
+)
+
+
+# ==========================================================
+# PLOT FUNCTION
+# ==========================================================
+
+make_region_plot <- function(chrom, midpoint) {
+
+  window_size <- 10e6
+
+  region_data <- full_dataset %>%
+    filter(
+      CHR == chrom,
+      POS >= (midpoint - window_size),
+      POS <= (midpoint + window_size)
+    ) %>%
+    mutate(POS_MB = POS / 1e6)
+
+  p <- ggplot(
+    region_data,
+    aes(
+      x = POS_MB,
+      y = new_z,
+      color = dataset
+    )
+  ) +
+    geom_point(size = 0.5, alpha = 0.8) +
+    geom_hline(
+      yintercept = c(-3, 3),
+      colour = "black",
+      linewidth = 0.4
+    ) +
+    scale_color_manual(values = method_colors) +
+    labs(
+      title = paste0("Chr ", chrom, " (", round(midpoint/1e6, 2), " Mb)"),
+      x = "Position (Mb)",
+      y = "Z-score"
+    ) +
+    theme_minimal(base_size = 10) +
+    theme(
+      plot.title = element_text(
+        hjust = 0.5,
+        face = "bold"
+      ),
+      panel.grid.minor = element_blank()
+    )
+
+  # gene box
+
+  xmin <- (midpoint / 1e6) - 0.2
+  xmax <- (midpoint / 1e6) + 0.2
+
+  p +
+    annotate(
+      "rect",
+      xmin = xmin,
+      xmax = xmax,
+      ymin = -3.2,
+      ymax = -2.8,
+      fill = "black"
+    )
+}
+
+
+# ==========================================================
+# BUILD FIGURE
+# ==========================================================
+
+plot1 <- make_region_plot(
+  regions[1, 1],
+  regions[1, 2]
+)
+
+legend <- cowplot::get_legend(
+
+  plot1 +
+    guides(
+      color = guide_legend(
+        override.aes = list(size = 3)
+      )
+    ) +
+    theme(
+      legend.position = "right",
+      legend.title = element_blank()
+    )
+
+)
+
+final_plot <- plot_grid(
+
+  plot1 +
+    theme(legend.position = "none"),
+
+  legend,
+
+  rel_widths = c(1, 0.32)
+
+)
+
+
+ggsave(
+  "revision_FigureS13.pdf",
+  final_plot,
+  width = 5,
+  height = 3,
+  dpi = 300
+)
+```
+
+
+#Figure S14:
+
+```{r}
+
+# INPUT FILES (FINAL DIRECTORY)
+  
+
+dataset_paths <- c(
+  "../final_figures_data/fig5_full_rfmix_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_ancestry_paths_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_ancestry_hmm_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_simplai_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_mosaic_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_gnomix_average_ancestry_output.txt",
+  "../final_figures_data/fig5_full_recombmix_average_ancestry_output.txt"
+
+)
+
+dataset_names <- c(
+  "rfmix",
+  "ancestralpaths",
+  "ancestry_hmm",
+  "simplai",
+  "mosaic",
+  "gnomix",
+  "recombmix"
+)
+
+num_datasets <- length(dataset_paths)
+
+# regions (CHR, POS)
+regions <- matrix(
+  c(
+    6, 30927867,
+    11, 61906864,
+    12, 44113667,
+    15, 48433494
+  ),
+  ncol = 2,
+  byrow = TRUE
+)
+colnames(regions) <- c("CHR", "POS")
+
+  
+# COLORS
+  
+
+method_colors <- c(
+  rfmix          = "#d62728",
+  ancestralpaths = "#ff7f0e",
+  ancestry_hmm   = "#1f77b4",
+  simplai        = "#e377c2",
+  mosaic         = "#2ca02c",
+  recombmix = "#B8860B",
+  gnomix = "#8B4513"
+)
+
+
+
+  
+# Z-SCORE
+  
+
+compute_zscore <- function(data) {
+  data$new_z <- scale(data$HGall)
+  data
+}
+
+  
+# READ DATA (UNCHANGED LOGIC, SAFE)
+  
+
+read_dataset <- function(path, name) {
+
+  df <- read.table(path, header = TRUE)
+  colnames(df) <- c("CHR", "POS", "HGall")
+
+  df <- df[order(df$CHR, df$POS), ]
+
+  window_size <- 51
+  out <- list()
+
+  for (chr in unique(df$CHR)) {
+
+    chr_data <- df[df$CHR == chr, ]
+    n <- nrow(chr_data)
+
+    means <- sapply(seq_len(n), function(i) {
+      end <- min(i + window_size - 1, n)
+      mean(chr_data$HGall[i:end], na.rm = TRUE)
+    })
+
+    out[[as.character(chr)]] <- data.frame(
+      CHR = chr_data$CHR,
+      POS = chr_data$POS,
+      HGall = means,
+      dataset = name
+    )
+  }
+
+  out <- bind_rows(out)
+  compute_zscore(out)
+}
+
+  
+# LOAD ALL DATASETS
+  
+
+full_dataset <- bind_rows(
+  lapply(seq_along(dataset_paths), function(i) {
+    read_dataset(dataset_paths[i], dataset_names[i])
+  })
+)
+
+  
+# PLOT FUNCTION
+  
+
+make_region_plot <- function(chrom, midpoint) {
+
+  window_size <- 10e6
+
+  region_data <- full_dataset %>%
+    filter(
+      CHR == chrom,
+      POS >= (midpoint - window_size),
+      POS <= (midpoint + window_size)
+    ) %>%
+    mutate(POS_MB = POS / 1e6)
+
+  ggplot(region_data,
+         aes(x = POS_MB, y = new_z, color = dataset)) +
+    geom_point(size = 0.5) +
+    geom_hline(yintercept = c(3, -3), color = "black") +
+
+    scale_color_manual(values = method_colors, drop = FALSE) +
+
+    labs(
+      title = paste0("Chr ", chrom, " (", round(midpoint/1e6, 2), " Mb)"),
+      x = "Position (Mb)",
+      y = "Z-score",
+      color = NULL
+    ) +
+
+    theme_minimal(base_size = 8) +
+    theme(
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 8)
+    ) +
+
+    # gene box logic
+    {
+      if (chrom == 6) {
+        ann <- data.frame(
+          start = 29600000,
+          end = 33400000
+        )
+        xmin <- ann$start / 1e6
+        xmax <- ann$end / 1e6
+        ymin <- -3.2
+        ymax <- -2.8
+      } else {
+        xmin <- (midpoint / 1e6) - 0.2
+        xmax <- (midpoint / 1e6) + 0.2
+        ymin <- -3.2
+        ymax <- -2.8
+      }
+
+      annotate("rect",
+               xmin = xmin, xmax = xmax,
+               ymin = ymin, ymax = ymax,
+               fill = "black")
+    }
+}
+
+  
+# BUILD PLOTS
+  
+
+plot_list <- lapply(
+  seq_len(nrow(regions)),
+  function(i) make_region_plot(regions[i,1], regions[i,2])
+)
+
+  
+# LEGEND (SINGLE CLEAN KEY)
+  
+
+legend_plot <- make_region_plot(regions[1,1], regions[1,2])
+
+legend <- cowplot::get_legend(
+  legend_plot +
+    guides(color = guide_legend(
+      override.aes = list(size = 3)
+    )) +
+    theme(
+      legend.position = "right",
+      legend.text = element_text(size = 8),
+      legend.key.size = unit(0.5, "cm")
+    )
+)
+
+# remove legends everywhere else
+plot_list <- lapply(plot_list, function(p) p + theme(legend.position = "none"))
+
+  
+# PANEL LAYOUT
+  
+
+n_plots <- length(plot_list)
+ncol_layout <- ceiling(sqrt(n_plots))
+
+panel <- plot_grid(
+  plotlist = plot_list,
+  ncol = ncol_layout,
+  labels = LETTERS[1:n_plots],
+  label_size = 9
+)
+
+  
+# FINAL FIGURE
+  
+
+final_plot <- plot_grid(
+  panel,
+  legend,
+  ncol = 2,
+  rel_widths = c(1, 0.25)
+)
+
+  
+# SAVE FIGURE S11
+  
+
+ggsave(
+  "revision_FigureS14.pdf",
+  final_plot,
+  width = 6,
+  height = 6,
+  dpi = 300
+)
+```
+
+
+
+#Figure S15:
+
+```{r}
+library(tidyverse)
+library(cowplot)
+
+# INPUT FILES
+
+discovery_file  <- "../final_sup_figures_data/figs12_combined_weighted_z_scores.txt"
+replication_file <- "../final_sup_figures_data/rfmix7v7_combined_weighted_z_scores.txt"
+
+# Four replicated regions
+regions <- matrix(
+  c(
+    6, 30927867,
+    11, 61906864,
+    12, 44113667,
+    15, 48433494
+  ),
+  ncol = 2,
+  byrow = TRUE
+)
+colnames(regions) <- c("CHR", "POS")
+
+window_size <- 10e6
+
+
+# LOAD DATA
+
+disc_data <- read.table(discovery_file, header = TRUE) %>%
+  dplyr::select(CHR, POS, weighted_z)
+
+rep_data <- read.table(replication_file, header = TRUE) %>%
+  dplyr::select(CHR, POS, weighted_z)
+
+
+# PLOT FUNCTION
+
+make_region_plot <- function(chrom, midpoint, show_legend = FALSE) {
+
+  rep_subset <- rep_data %>%
+    filter(
+      CHR == chrom,
+      POS >= midpoint - window_size,
+      POS <= midpoint + window_size
+    ) %>%
+    mutate(dataset = "RFMix 7v7")
+
+  disc_subset <- disc_data %>%
+    filter(
+      CHR == chrom,
+      POS >= midpoint - window_size,
+      POS <= midpoint + window_size
+    ) %>%
+    mutate(dataset = "Discovery")
+
+  combined <- bind_rows(rep_subset, disc_subset) %>%
+    mutate(POS_MB = POS / 1e6)
+
+  p <- ggplot(
+    combined,
+    aes(POS_MB, weighted_z, color = dataset)
+  ) +
+
+    geom_point(size = 0.6) +
+
+    geom_hline(
+      yintercept = c(3, -3),
+      color = "black"
+    ) +
+
+    geom_hline(
+      yintercept = c(2.24, -2.24),
+      linetype = "dashed",
+      color = "black"
+    ) +
+
+    scale_color_manual(
+      values = c(
+        Discovery = "purple4",
+        `RFMix 7v7` = "#56B4E9"
+      ),
+      drop = FALSE
+    ) +
+
+    labs(
+      title = paste0(
+        "Chr ", chrom,
+        " (", round(midpoint/1e6, 2), " Mb)"
+      ),
+      x = "Position (Mb)",
+      y = "Z-score",
+      color = NULL
+    ) +
+
+    theme_minimal(base_size = 8) +
+    theme(
+      legend.position = if (show_legend) "right" else "none",
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      plot.title = element_text(
+        hjust = 0.5,
+        face = "bold",
+        size = 8
+      )
+    )
+
+  # HLA annotation box
+  if (chrom == 6) {
+    xmin <- 29.6
+    xmax <- 33.4
+  } else {
+    xmin <- midpoint / 1e6 - 0.2
+    xmax <- midpoint / 1e6 + 0.2
+  }
+
+  p +
+    annotate(
+      "rect",
+      xmin = xmin,
+      xmax = xmax,
+      ymin = -3.2,
+      ymax = -2.8,
+      fill = "black"
+    )
+}
+
+
+# BUILD PLOTS
+
+plot_list <- lapply(
+  seq_len(nrow(regions)),
+  function(i)
+    make_region_plot(
+      regions[i, 1],
+      regions[i, 2]
+    )
+)
+
+
+# SINGLE LEGEND
+
+legend_plot <- make_region_plot(
+  regions[1,1],
+  regions[1,2],
+  show_legend = TRUE
+)
+
+legend <- cowplot::get_legend(
+  legend_plot +
+    guides(
+      color = guide_legend(
+        override.aes = list(size = 3)
+      )
+    ) +
+    theme(
+      legend.position = "right",
+      legend.text = element_text(size = 8),
+      legend.key.size = unit(0.5, "cm")
+    )
+)
+
+plot_list <- lapply(
+  plot_list,
+  function(p) p + theme(legend.position = "none")
+)
+
+
+# PANEL LAYOUT
+
+panel <- plot_grid(
+  plotlist = plot_list,
+  ncol = 2,
+  labels = LETTERS[1:4],
+  label_size = 9
+)
+
+
+# FINAL FIGURE
+
+final_plot <- plot_grid(
+  panel,
+  legend,
+  ncol = 2,
+  rel_widths = c(1, 0.25)
+)
+
+
+# SAVE
+
+ggsave(
+  "revision_FigureS15.pdf",
+  final_plot,
+  width = 6,
+  height = 6,
+  dpi = 300
+)
+
+```
+
+
+
+#Figure S16:
+
+```{r}
+
+# ==============================================================
+# FIGURE S16: Manhattan + QQ
+#
+# High-quality publication PDF:
+# - SNP point layers rasterized at 600 dpi using ggrastr
+# - All text, axes, threshold lines, etc. remain vector
+# - cairo_pdf used for final PDF output
+# ==============================================================
+
+library(ggplot2)
+library(dplyr)
+library(cowplot)
+library(grid)
+library(ggrastr)
+
+# --------------------------------------------------------------
+# LOAD DATA
+# --------------------------------------------------------------
+
+z_score_data <- read.table(
+  "../final_sup_figures_data/S16_combined_weighted_z_scores.txt",
+  header = TRUE
+)
+
+combined_data <- z_score_data
+
+combined_data$CHR <- as.numeric(combined_data$CHR)
+
+
+# --------------------------------------------------------------
+# COLORS
+# --------------------------------------------------------------
+
+combined_data$color <- ifelse(
+  combined_data$CHR %% 2 == 0,
+  "#9b59b6",
+  "#d2b4de"
+)
+
+
+# --------------------------------------------------------------
+# CHROMOSOME POSITIONS
+# --------------------------------------------------------------
+
+chr_positions <- combined_data %>%
+  group_by(CHR) %>%
+  summarise(
+    chr_index = mean(index),
+    .groups = "drop"
+  )
+
+
+# --------------------------------------------------------------
+# GENE LABEL POSITIONS
+# --------------------------------------------------------------
+
+gene_labels <- data.frame(
+  gene = c(
+    "HLA",
+    "FADS",
+    "SLC24A5",
+    "TMEM117"
+  ),
+  CHR = c(
+    6,
+    11,
+    14,
+    11
+  ),
+  y = c(
+    4,
+    -3.7,
+    -3.7,
+    4
+  )
+) %>%
+  left_join(
+    chr_positions,
+    by = "CHR"
+  ) %>%
+  mutate(
+    CHR_prev = CHR - 1
+  ) %>%
+  left_join(
+    chr_positions,
+    by = c("CHR_prev" = "CHR"),
+    suffix = c("", "_prev")
+  ) %>%
+  mutate(
+    x = ifelse(
+      !is.na(chr_index_prev),
+      chr_index_prev,
+      chr_index
+    )
+  ) %>%
+  select(
+    gene,
+    x,
+    y
+  )
+
+
+# ==============================================================
+# MANHATTAN PLOT
+#
+# IMPORTANT:
+# Only the SNP points are rasterized.
+# Everything else remains vector.
+# ==============================================================
+
+manhattan_plot <- ggplot(
+  combined_data,
+  aes(
+    x = index,
+    y = weighted_z,
+    color = color
+  )
+) +
+
+  # ------------------------------------------------------------
+  # Rasterized SNP points
+  # ------------------------------------------------------------
+
+  rasterize(
+    geom_point(size = 0.7),
+    dpi = 600
+  ) +
+
+  # ------------------------------------------------------------
+  # Z-score threshold lines -- VECTOR
+  # ------------------------------------------------------------
+
+  geom_hline(
+    yintercept = c(3, -3),
+    color = "black",
+    linetype = "solid"
+  ) +
+
+  # ------------------------------------------------------------
+  # Threshold labels -- VECTOR
+  # ------------------------------------------------------------
+
+  annotate(
+    "text",
+    x = max(combined_data$index) * 0.98,
+    y = 3,
+    label = "Z = 3",
+    hjust = 1,
+    vjust = -0.3,
+    size = 3
+  ) +
+
+  annotate(
+    "text",
+    x = max(combined_data$index) * 0.98,
+    y = -3,
+    label = "Z = -3",
+    hjust = 1,
+    vjust = 1.3,
+    size = 3
+  ) +
+
+  # ------------------------------------------------------------
+  # Gene labels
+  #
+  # Currently commented out, matching your original S16.
+  # Uncomment if you want them.
+  # ------------------------------------------------------------
+
+  # geom_text(
+  #   data = gene_labels,
+  #   aes(
+  #     x = x,
+  #     y = y,
+  #     label = gene
+  #   ),
+  #   inherit.aes = FALSE,
+  #   size = 3.2,
+  #   fontface = "italic",
+  #   vjust = ifelse(
+  #     gene_labels$y > 0,
+  #     -0.3,
+  #     1.3
+  #   )
+  # ) +
+
+  scale_color_identity() +
+
+  labs(
+    x = "Chromosome",
+    y = "Average Z-score"
+  ) +
+
+  theme_minimal(
+    base_size = 11
+  ) +
+
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(
+      10,
+      10,
+      10,
+      10
+    )
+  )
+
+
+# ==============================================================
+# QQ PLOT
+#
+# Again, ONLY the points are rasterized.
+# The diagonal line and all text remain vector.
+# ==============================================================
+
+qq_data <- combined_data %>%
+  dplyr::select(
+    p_value = p_value
+  ) %>%
+  mutate(
+    p_value = as.numeric(p_value)
+  ) %>%
+  filter(
+    !is.na(p_value),
+    p_value > 0
+  )
+
+
+n <- length(
+  qq_data$p_value
+)
+
+observed <- -log10(
+  sort(qq_data$p_value)
+)
+
+expected <- -log10(
+  ppoints(n)
+)
+
+
+qq_plot <- ggplot(
+  data.frame(
+    expected,
+    observed
+  ),
+  aes(
+    x = expected,
+    y = observed
+  )
+) +
+
+  # ------------------------------------------------------------
+  # Rasterized QQ points
+  # ------------------------------------------------------------
+
+  rasterize(
+    geom_point(
+      size = 0.6,
+      alpha = 0.6
+    ),
+    dpi = 600
+  ) +
+
+  # ------------------------------------------------------------
+  # QQ reference line -- VECTOR
+  # ------------------------------------------------------------
+
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    color = "gray40",
+    linetype = "dashed"
+  ) +
+
+  labs(
+    x = "Expected",
+    y = "Observed"
+  ) +
+
+  theme_minimal(
+    base_size = 10
+  ) +
+
+  theme(
+    plot.margin = margin(
+      10,
+      10,
+      10,
+      10
+    ),
+    axis.title = element_text(
+      size = 9
+    ),
+    axis.text = element_text(
+      size = 8
+    )
+  )
+
+
+# ==============================================================
+# COMBINE A + B
+# ==============================================================
+
+combined_plot <- plot_grid(
+  manhattan_plot,
+  qq_plot,
+  labels = c(
+    "A",
+    "B"
+  ),
+  label_size = 12,
+  label_fontface = "plain",
+  rel_widths = c(
+    2.5,
+    1.5
+  )
+)
+
+
+# ==============================================================
+# SAVE
+#
+# cairo_pdf keeps vector text/lines and embeds the rasterized
+# point layers cleanly.
+#
+# dpi = 600 is already specified for the rasterized layers.
+# ==============================================================
+
+ggsave(
+  "revision_FigureS16.pdf",
+  combined_plot,
+  width = 8,
+  height = 3.75,
+  device = cairo_pdf
+)
+```
+
+
+#Figure S17:
+
+```{r}
+
+# ==============================================================
+# FIGURE S17: Manhattan + QQ
+#
+# High-quality publication PDF:
+# - SNP point layers rasterized at 600 dpi using ggrastr
+# - All text, axes, threshold lines, etc. remain vector
+# - cairo_pdf used for final PDF output
+# ==============================================================
+
+library(ggplot2)
+library(dplyr)
+library(cowplot)
+library(grid)
+library(ggrastr)
+
+# --------------------------------------------------------------
+# LOAD DATA
+# --------------------------------------------------------------
+
+z_score_data <- read.table(
+  "../final_sup_figures_data/rfmix7v7_combined_weighted_z_scores.txt",
+  header = TRUE
+)
+
+combined_data <- z_score_data
+
+combined_data$CHR <- as.numeric(
+  combined_data$CHR
+)
+
+
+# --------------------------------------------------------------
+# COLORS
+# --------------------------------------------------------------
+
+combined_data$color <- ifelse(
+  combined_data$CHR %% 2 == 0,
+  "#9b59b6",
+  "#d2b4de"
+)
+
+
+# --------------------------------------------------------------
+# CHROMOSOME POSITIONS
+# --------------------------------------------------------------
+
+chr_positions <- combined_data %>%
+  group_by(CHR) %>%
+  summarise(
+    chr_index = mean(index),
+    .groups = "drop"
+  )
+
+
+# --------------------------------------------------------------
+# GENE LABEL POSITIONS
+# --------------------------------------------------------------
+
+gene_labels <- data.frame(
+  gene = c(
+    "HLA",
+    "FADS",
+    "SLC24A5",
+    "TMEM117"
+  ),
+  CHR = c(
+    6,
+    11,
+    14,
+    11
+  ),
+  y = c(
+    4,
+    -3.7,
+    -3.7,
+    4
+  )
+) %>%
+  left_join(
+    chr_positions,
+    by = "CHR"
+  ) %>%
+  mutate(
+    CHR_prev = CHR - 1
+  ) %>%
+  left_join(
+    chr_positions,
+    by = c("CHR_prev" = "CHR"),
+    suffix = c("", "_prev")
+  ) %>%
+  mutate(
+    x = ifelse(
+      !is.na(chr_index_prev),
+      chr_index_prev,
+      chr_index
+    )
+  ) %>%
+  select(
+    gene,
+    x,
+    y
+  )
+
+
+# ==============================================================
+# MANHATTAN PLOT
+# ==============================================================
+
+manhattan_plot <- ggplot(
+  combined_data,
+  aes(
+    x = index,
+    y = weighted_z,
+    color = color
+  )
+) +
+
+  # ------------------------------------------------------------
+  # Rasterize ONLY the SNP points
+  # ------------------------------------------------------------
+
+  rasterize(
+    geom_point(size = 0.7),
+    dpi = 600
+  ) +
+
+  # ------------------------------------------------------------
+  # Z-score threshold lines -- VECTOR
+  # ------------------------------------------------------------
+
+  geom_hline(
+    yintercept = c(3, -3),
+    color = "black",
+    linetype = "solid"
+  ) +
+
+  # ------------------------------------------------------------
+  # Threshold labels -- VECTOR
+  # ------------------------------------------------------------
+
+  annotate(
+    "text",
+    x = max(combined_data$index) * 0.98,
+    y = 3,
+    label = "Z = 3",
+    hjust = 1,
+    vjust = -0.3,
+    size = 3
+  ) +
+
+  annotate(
+    "text",
+    x = max(combined_data$index) * 0.98,
+    y = -3,
+    label = "Z = -3",
+    hjust = 1,
+    vjust = 1.3,
+    size = 3
+  ) +
+
+  # ------------------------------------------------------------
+  # Gene annotations -- currently commented out,
+  # exactly as in your original S17.
+  # ------------------------------------------------------------
+
+  # geom_text(
+  #   data = gene_labels,
+  #   aes(
+  #     x = x,
+  #     y = y,
+  #     label = gene
+  #   ),
+  #   inherit.aes = FALSE,
+  #   size = 3.2,
+  #   fontface = "italic",
+  #   vjust = ifelse(
+  #     gene_labels$y > 0,
+  #     -0.3,
+  #     1.3
+  #   )
+  # ) +
+
+  scale_color_identity() +
+
+  labs(
+    x = "Chromosome",
+    y = "Average Z-score"
+  ) +
+
+  theme_minimal(
+    base_size = 11
+  ) +
+
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(
+      10,
+      10,
+      10,
+      10
+    )
+  )
+
+
+# ==============================================================
+# QQ PLOT
+# ==============================================================
+
+qq_data <- combined_data %>%
+  dplyr::select(
+    p_value = p_value
+  ) %>%
+  mutate(
+    p_value = as.numeric(p_value)
+  ) %>%
+  filter(
+    !is.na(p_value),
+    p_value > 0
+  )
+
+
+n <- length(
+  qq_data$p_value
+)
+
+observed <- -log10(
+  sort(qq_data$p_value)
+)
+
+expected <- -log10(
+  ppoints(n)
+)
+
+
+qq_plot <- ggplot(
+  data.frame(
+    expected,
+    observed
+  ),
+  aes(
+    x = expected,
+    y = observed
+  )
+) +
+
+  # ------------------------------------------------------------
+  # Rasterize ONLY the QQ points
+  # ------------------------------------------------------------
+
+  rasterize(
+    geom_point(
+      size = 0.6,
+      alpha = 0.6
+    ),
+    dpi = 600
+  ) +
+
+  # ------------------------------------------------------------
+  # Reference line -- VECTOR
+  # ------------------------------------------------------------
+
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    color = "gray40",
+    linetype = "dashed"
+  ) +
+
+  labs(
+    x = "Expected",
+    y = "Observed"
+  ) +
+
+  theme_minimal(
+    base_size = 10
+  ) +
+
+  theme(
+    plot.margin = margin(
+      10,
+      10,
+      10,
+      10
+    ),
+    axis.title = element_text(
+      size = 9
+    ),
+    axis.text = element_text(
+      size = 8
+    )
+  )
+
+
+# ==============================================================
+# COMBINE A + B
+# ==============================================================
+
+combined_plot <- plot_grid(
+  manhattan_plot,
+  qq_plot,
+  labels = c(
+    "A",
+    "B"
+  ),
+  label_size = 12,
+  label_fontface = "plain",
+  rel_widths = c(
+    2.5,
+    1.5
+  )
+)
+
+
+# ==============================================================
+# SAVE PUBLICATION-QUALITY PDF
+# ==============================================================
+
+ggsave(
+  "revision_FigureS17.pdf",
+  combined_plot,
+  width = 8,
+  height = 3.75,
+  device = cairo_pdf
+)
+
+
+```
+
+
+
+
+#Supplementary Tables:
+
+
+#Table S1:
+
+
+```{r}
+library(tidyverse)
+
+  
+# 0. Load data
+  
+
+# Discovery dataset
+z_score_data <- read.table("../final_figures_data/dis_combined_weighted_z_scores.txt", header = TRUE)
+
+# replication datasets
+rep_z_score_data <- read.table("../final_figures_data/rep2_combined_weighted_z_scores.txt", header = TRUE)
+capture_z_score_data <- read.table("../final_figures_data/rep1_combined_weighted_z_scores.txt", header = TRUE)
+
+
+  
+# 1. Keep autosomes only
+  
+
+z_score_data <- z_score_data %>% filter(CHR %in% 1:22)
+rep_z_score_data <- rep_z_score_data %>% filter(CHR %in% 1:22)
+capture_z_score_data <- capture_z_score_data %>% filter(CHR %in% 1:22)
+
+  
+# 2. Filter |Z| > 3 in discovery
+  
+
+discovery_hits <- z_score_data %>%
+  filter(abs(weighted_z) > 3) %>%
+  arrange(CHR, POS)
+
+  
+# 3. Collapse regions within 3 Mb
+  
+
+collapse_hits <- function(df, window = 3e6) {
+  
+  df <- df %>% arrange(CHR, POS)
+  kept <- list()
+  
+  for(chr in unique(df$CHR)) {
+    
+    chr_df <- df %>% filter(CHR == chr)
+    
+    while(nrow(chr_df) > 0) {
+      
+      lead <- chr_df[1, ]
+      
+      region <- chr_df %>%
+        filter(abs(POS - lead$POS) <= window)
+      
+      # Keep lowest p-value
+      best <- region %>% arrange(p_value) %>% slice(1)
+      
+      kept[[length(kept) + 1]] <- best
+      
+      chr_df <- chr_df %>%
+        filter(abs(POS - best$POS) > window)
+    }
+  }
+  
+  bind_rows(kept)
+}
+
+discovery_collapsed <- collapse_hits(discovery_hits, window = 3e6)
+
+  
+# 4. Replication function (2 Mb window ONLY)
+  
+
+find_replication <- function(row, rep_df, window = 2e6, p_thresh = 0.0083) {
+  
+  chr <- row$CHR
+  pos <- row$POS
+  
+  chr_rep <- rep_df %>% filter(CHR == chr)
+  
+  hits <- chr_rep %>% filter(abs(POS - pos) <= window)
+  
+  if(nrow(hits) == 0) {
+    return(NULL)
+  }
+  
+  best <- hits %>% arrange(p_value) %>% slice(1)
+  
+  tibble(
+    Replication_POS = best$POS,
+    Replication_Z = best$weighted_z,
+    Replication_P = best$p_value,
+    Distance_bp = abs(best$POS - pos),
+    Replication_Significant = best$p_value < p_thresh,
+    Any_Significant_2Mb = any(hits$p_value < p_thresh)
+  )
+}
+
+  
+# 5. Build final table (Akbari + Capture)
+  
+
+results <- list()
+
+for(i in 1:nrow(discovery_collapsed)) {
+  
+  disc <- discovery_collapsed[i, ]
+  
+  # Akbari replication
+  rep_akbari <- find_replication(disc, rep_z_score_data)
+  
+  # Capture replication
+  rep_capture <- find_replication(disc, capture_z_score_data)
+  
+  if(!is.null(rep_akbari) | !is.null(rep_capture)) {
+    
+    if(!is.null(rep_akbari)){
+      rep_akbari <- rep_akbari %>%
+        rename_with(~paste0("Akbari_", .))
+    }
+    
+    if(!is.null(rep_capture)){
+      rep_capture <- rep_capture %>%
+        rename_with(~paste0("Capture_", .))
+    }
+    
+    combined <- bind_cols(
+      tibble(
+        CHR = disc$CHR,
+        Discovery_POS = disc$POS,
+        Discovery_Z = disc$weighted_z,
+        Discovery_P = disc$p_value
+      ),
+      rep_akbari,
+      rep_capture
+    )
+    
+    results[[length(results) + 1]] <- combined
+  }
+}
+
+final_table <- bind_rows(results)
+
+  
+# 6. Optional summary column
+  
+
+final_table <- final_table %>%
+  mutate(
+    Replicated_in_any = coalesce(Akbari_Replication_Significant, FALSE) |
+                        coalesce(Capture_Replication_Significant, FALSE)
+  )
+
+  
+# 7. Save table
+  
+
+
+final_table_clean <- final_table %>%
+  transmute(
+    CHR,
+    
+    # Discovery
+    Discovery_POS,
+    Discovery_Z,
+    Discovery_P,
+    
+        # Rep1 (formerly Capture)
+    Rep1_Z = Capture_Replication_Z,
+    Rep1_P = Capture_Replication_P,
+    Replicated_Rep1 = coalesce(Capture_Replication_Significant, FALSE),
+    
+    # Rep2 (formerly Akbari)
+    Rep2_Z = Akbari_Replication_Z,
+    Rep2_P = Akbari_Replication_P,
+    Replicated_Rep2 = coalesce(Akbari_Replication_Significant, FALSE)
+    
+  )
+
+write.table(final_table_clean,
+            "revision_Table_S1.txt",
+            quote = FALSE,
+            row.names = FALSE,
+            sep = "\t")
+```
+
+
+
+
+#Table S3:
+
+```{r}
+
+#table S3
+
+#X chromosome and replication 
+
+#Hits reaching a threshold of Z is greater than 3 or less than -3 on the X 
+
+library(tidyverse)
+
+# Load data
+z_score_data <- read.table(
+  "../final_figures_data/combined_weighted_z_scores.txt",
+  header = TRUE
+)
+
+rep_z_score_data <- read.table(
+  "../final_sup_figures_data/x_rep_combined_weighted_z_scores.txt",
+  header = TRUE
+)
+
+ 
+# 1. Keep autosomes only
+ 
+
+#z_score_data <- z_score_data %>% filter(CHR %in% 1:22)
+#rep_z_score_data <- rep_z_score_data %>% filter(CHR %in% 1:22)
+
+ 
+# 2. Filter |Z| > 3 in discovery
+ 
+
+discovery_hits <- z_score_data %>%
+  filter(abs(weighted_z) > 3) %>%
+  arrange(CHR, POS)
+
+ 
+# 3. Collapse regions within 3 Mb
+ 
+
+collapse_hits <- function(df, window = 3e6) {
+  
+  df <- df %>% arrange(CHR, POS)
+  kept <- list()
+  
+  for(chr in unique(df$CHR)) {
+    
+    chr_df <- df %>% filter(CHR == chr)
+    
+    while(nrow(chr_df) > 0) {
+      
+      lead <- chr_df[1, ]
+      
+      region <- chr_df %>%
+        filter(abs(POS - lead$POS) <= window)
+      
+      # Keep lowest p-value
+      best <- region %>% arrange(p_value) %>% slice(1)
+      
+      kept[[length(kept) + 1]] <- best
+      
+      chr_df <- chr_df %>%
+        filter(abs(POS - best$POS) > window)
+    }
+  }
+  
+  bind_rows(kept)
+}
+
+discovery_collapsed <- collapse_hits(discovery_hits, window = 3e6)
+
+ 
+# 4. Find replication matches
+ 
+
+find_replication <- function(row, rep_df, strict_window = 250000, broad_window = 2000000, p_thresh = 0.05) {
+  
+  chr <- row$CHR
+  pos <- row$POS
+  
+  chr_rep <- rep_df %>% filter(CHR == chr)
+  
+  # Compute both windows first
+  tight <- chr_rep %>% filter(abs(POS - pos) <= strict_window)
+  loose <- chr_rep %>% filter(abs(POS - pos) <= broad_window)
+  
+  # Choose best hit
+  if(nrow(tight) > 0) {
+    best <- tight %>% arrange(p_value) %>% slice(1)
+    window_type <- "250kb"
+  } else if(nrow(loose) > 0) {
+    best <- loose %>% arrange(p_value) %>% slice(1)
+    window_type <- "2Mb"
+  } else {
+    return(NULL) # no replication hit found
+  }
+  
+  distance_bp <- abs(best$POS - pos)
+  
+  # Check if any replication hit in windows has p < threshold
+  sig_250kb <- any(tight$p_value < p_thresh)
+  sig_2Mb   <- any(loose$p_value < p_thresh)
+  
+  tibble(
+    Replication_POS = best$POS,
+    Replication_Z = best$weighted_z,
+    Replication_P = best$p_value,
+    Distance_bp = distance_bp,
+    Replication_Significant = best$p_value < p_thresh,
+    Significant_250kb = sig_250kb,
+    Significant_2Mb = sig_2Mb,
+    Replication_Window = window_type
+  )
+}
+ 
+# 5. Build final table
+ 
+
+results <- list()
+
+for(i in 1:nrow(discovery_collapsed)) {
+  
+  disc <- discovery_collapsed[i, ]
+  rep_hit <- find_replication(disc, rep_z_score_data)
+  
+  if(!is.null(rep_hit)) {
+    
+    combined <- bind_cols(
+      tibble(
+        CHR = disc$CHR,
+        Discovery_POS = disc$POS,
+        Discovery_Z = disc$weighted_z,
+        Discovery_P = disc$p_value
+      ),
+      rep_hit
+    )
+    
+    results[[length(results) + 1]] <- combined
+  }
+}
+
+final_table <- bind_rows(results)
+
+ 
+# 6. Write table
+ 
+
+write.table(final_table,
+            "revision_Table_S3.txt",
+            quote = FALSE,
+            row.names = FALSE,
+            sep = "\t")
+
+```
+
+
+#Table S4:
+
+```{r}
+
+#Supp table for replication of 7v48 discovery in 7vN and rfmix 7v7
+
+#table S4
+
+library(tidyverse)
+
+# 7v48 discovery
+data_7v48 <- read.table("../final_figures_data/dis_combined_weighted_z_scores.txt", header = TRUE)
+
+# 7vN
+data_7vN <- read.table("../final_sup_figures_data/S16_combined_weighted_z_scores.txt", header = TRUE)
+
+
+# rfmix 7v7
+data_rfmix <- read.table("../final_sup_figures_data/rfmix7v7_combined_weighted_z_scores.txt", header = TRUE)
+
+data_7v48 <- data_7v48 %>% filter(CHR %in% 1:22)
+data_7vN  <- data_7vN  %>% filter(CHR %in% 1:22)
+data_rfmix <- data_rfmix %>% filter(CHR %in% 1:22)
+
+
+discovery_hits <- data_7v48 %>%
+  filter(abs(weighted_z) > 3) %>%
+  arrange(CHR, POS)
+
+discovery_collapsed <- collapse_hits(discovery_hits, window = 3e6)
+
+
+lead_snps <- discovery_collapsed %>%
+  select(
+    CHR,
+    Discovery_POS = POS,
+    Discovery_Z = weighted_z,
+    Discovery_P = p_value
+  )
+
+
+data_7vN_small <- data_7vN %>%
+  select(
+    CHR,
+    POS,
+    `7vN_Z` = weighted_z,
+    `7vN_P` = p_value
+  )
+
+data_rfmix_small <- data_rfmix %>%
+  select(
+    CHR,
+    POS,
+    rfmix_7v7_Z = weighted_z,
+    rfmix_7v7_P = p_value
+  )
+
+
+final_table_S2 <- lead_snps %>%
+  left_join(data_7vN_small, 
+            by = c("CHR", "Discovery_POS" = "POS")) %>%
+  left_join(data_rfmix_small, 
+            by = c("CHR", "Discovery_POS" = "POS"))
+
+
+
+write.table(final_table_S2,
+            "revision_Table_S4.txt",
+            quote = FALSE,
+            row.names = FALSE,
+            sep = "\t")
+
+```
+
+
+
+#Table S5:
+
+```{r}
+library(tidyverse)
+
+ 
+# 0. Load data
+ 
+
+# Discovery dataset
+z_score_data <- read.table("../final_sup_figures_data/S16_combined_weighted_z_scores.txt", header = TRUE)
+
+# replication datasets
+rep_z_score_data <- read.table("../final_figures_data/rep2_combined_weighted_z_scores.txt", header = TRUE)
+capture_z_score_data <- read.table("../final_figures_data/rep1_combined_weighted_z_scores.txt", header = TRUE)
+
+
+
+ 
+# 1. Keep autosomes only
+ 
+
+z_score_data <- z_score_data %>% filter(CHR %in% 1:22)
+rep_z_score_data <- rep_z_score_data %>% filter(CHR %in% 1:22)
+capture_z_score_data <- capture_z_score_data %>% filter(CHR %in% 1:22)
+
+ 
+# 2. Filter |Z| > 3 in discovery
+ 
+
+discovery_hits <- z_score_data %>%
+  filter(abs(weighted_z) > 3) %>%
+  arrange(CHR, POS)
+
+ 
+# 3. Collapse regions within 3 Mb
+ 
+
+collapse_hits <- function(df, window = 3e6) {
+  
+  df <- df %>% arrange(CHR, POS)
+  kept <- list()
+  
+  for(chr in unique(df$CHR)) {
+    
+    chr_df <- df %>% filter(CHR == chr)
+    
+    while(nrow(chr_df) > 0) {
+      
+      lead <- chr_df[1, ]
+      
+      region <- chr_df %>%
+        filter(abs(POS - lead$POS) <= window)
+      
+      # Keep lowest p-value
+      best <- region %>% arrange(p_value) %>% slice(1)
+      
+      kept[[length(kept) + 1]] <- best
+      
+      chr_df <- chr_df %>%
+        filter(abs(POS - best$POS) > window)
+    }
+  }
+  
+  bind_rows(kept)
+}
+
+discovery_collapsed <- collapse_hits(discovery_hits, window = 3e6)
+
+ 
+# 4. Replication function (2 Mb window ONLY)
+ 
+
+find_replication <- function(row, rep_df, window = 2e6, p_thresh = 0.005) {
+  
+  chr <- row$CHR
+  pos <- row$POS
+  
+  chr_rep <- rep_df %>% filter(CHR == chr)
+  
+  hits <- chr_rep %>% filter(abs(POS - pos) <= window)
+  
+  if(nrow(hits) == 0) {
+    return(NULL)
+  }
+  
+  best <- hits %>% arrange(p_value) %>% slice(1)
+  
+  tibble(
+    Replication_POS = best$POS,
+    Replication_Z = best$weighted_z,
+    Replication_P = best$p_value,
+    Distance_bp = abs(best$POS - pos),
+    Replication_Significant = best$p_value < p_thresh,
+    Any_Significant_2Mb = any(hits$p_value < p_thresh)
+  )
+}
+
+ 
+# 5. Build final table (Akbari + Capture)
+ 
+
+results <- list()
+
+for(i in 1:nrow(discovery_collapsed)) {
+  
+  disc <- discovery_collapsed[i, ]
+  
+  # Akbari replication
+  rep_akbari <- find_replication(disc, rep_z_score_data)
+  
+  # Capture replication
+  rep_capture <- find_replication(disc, capture_z_score_data)
+  
+  if(!is.null(rep_akbari) | !is.null(rep_capture)) {
+    
+    if(!is.null(rep_akbari)){
+      rep_akbari <- rep_akbari %>%
+        rename_with(~paste0("Akbari_", .))
+    }
+    
+    if(!is.null(rep_capture)){
+      rep_capture <- rep_capture %>%
+        rename_with(~paste0("Capture_", .))
+    }
+    
+    combined <- bind_cols(
+      tibble(
+        CHR = disc$CHR,
+        Discovery_POS = disc$POS,
+        Discovery_Z = disc$weighted_z,
+        Discovery_P = disc$p_value
+      ),
+      rep_akbari,
+      rep_capture
+    )
+    
+    results[[length(results) + 1]] <- combined
+  }
+}
+
+final_table <- bind_rows(results)
+
+ 
+# 6. Optional summary column
+ 
+
+final_table <- final_table %>%
+  mutate(
+    Replicated_in_any = coalesce(Akbari_Replication_Significant, FALSE) |
+                        coalesce(Capture_Replication_Significant, FALSE)
+  )
+
+ 
+# 7. Save table
+ 
+
+
+final_table_clean <- final_table %>%
+  transmute(
+    CHR,
+    
+    # Discovery
+    Discovery_POS,
+    Discovery_Z,
+    Discovery_P,
+    
+        # Rep1 (formerly Capture)
+    Rep1_Z = Capture_Replication_Z,
+    Rep1_P = Capture_Replication_P,
+    Replicated_Rep1 = coalesce(Capture_Replication_Significant, FALSE),
+    
+    # Rep2 (formerly Akbari)
+    Rep2_Z = Akbari_Replication_Z,
+    Rep2_P = Akbari_Replication_P,
+    Replicated_Rep2 = coalesce(Akbari_Replication_Significant, FALSE)
+    
+  )
+
+write.table(final_table_clean,
+           "revision_Table_S5.txt",
+            quote = FALSE,
+            row.names = FALSE,
+            sep = "\t")
+```
+
+
+#Table S6:
+
+```{r}
+
+rfmix_7v7 <- read.table("../final_sup_figures_data/rfmix7v7_combined_weighted_z_scores.txt", header = TRUE)
+
+library(tidyverse)
+
+ 
+# 0. Load data
+ 
+
+# Discovery dataset
+z_score_data <- rfmix_7v7
+
+# replication datasets
+rep_z_score_data <- read.table("../final_figures_data/rep2_combined_weighted_z_scores.txt", header = TRUE)
+capture_z_score_data <- read.table("../final_figures_data/rep1_combined_weighted_z_scores.txt", header = TRUE)
+
+
+
+ 
+# 1. Keep autosomes only
+ 
+
+z_score_data <- z_score_data %>% filter(CHR %in% 1:22)
+rep_z_score_data <- rep_z_score_data %>% filter(CHR %in% 1:22)
+capture_z_score_data <- capture_z_score_data %>% filter(CHR %in% 1:22)
+
+ 
+# 2. Filter |Z| > 3 in discovery
+ 
+
+discovery_hits <- z_score_data %>%
+  filter(abs(weighted_z) > 3) %>%
+  arrange(CHR, POS)
+
+ 
+# 3. Collapse regions within 3 Mb
+ 
+
+collapse_hits <- function(df, window = 3e6) {
+  
+  df <- df %>% arrange(CHR, POS)
+  kept <- list()
+  
+  for(chr in unique(df$CHR)) {
+    
+    chr_df <- df %>% filter(CHR == chr)
+    
+    while(nrow(chr_df) > 0) {
+      
+      lead <- chr_df[1, ]
+      
+      region <- chr_df %>%
+        filter(abs(POS - lead$POS) <= window)
+      
+      # Keep lowest p-value
+      best <- region %>% arrange(p_value) %>% slice(1)
+      
+      kept[[length(kept) + 1]] <- best
+      
+      chr_df <- chr_df %>%
+        filter(abs(POS - best$POS) > window)
+    }
+  }
+  
+  bind_rows(kept)
+}
+
+discovery_collapsed <- collapse_hits(discovery_hits, window = 3e6)
+
+ 
+# 4. Replication function (2 Mb window ONLY)
+ 
+
+find_replication <- function(row, rep_df, window = 2e6, p_thresh = 0.005) {
+  
+  chr <- row$CHR
+  pos <- row$POS
+  
+  chr_rep <- rep_df %>% filter(CHR == chr)
+  
+  hits <- chr_rep %>% filter(abs(POS - pos) <= window)
+  
+  if(nrow(hits) == 0) {
+    return(NULL)
+  }
+  
+  best <- hits %>% arrange(p_value) %>% slice(1)
+  
+  tibble(
+    Replication_POS = best$POS,
+    Replication_Z = best$weighted_z,
+    Replication_P = best$p_value,
+    Distance_bp = abs(best$POS - pos),
+    Replication_Significant = best$p_value < p_thresh,
+    Any_Significant_2Mb = any(hits$p_value < p_thresh)
+  )
+}
+
+ 
+# 5. Build final table (Akbari + Capture)
+ 
+
+results <- list()
+
+for(i in 1:nrow(discovery_collapsed)) {
+  
+  disc <- discovery_collapsed[i, ]
+  
+  # Akbari replication
+  rep_akbari <- find_replication(disc, rep_z_score_data)
+  
+  # Capture replication
+  rep_capture <- find_replication(disc, capture_z_score_data)
+  
+  if(!is.null(rep_akbari) | !is.null(rep_capture)) {
+    
+    if(!is.null(rep_akbari)){
+      rep_akbari <- rep_akbari %>%
+        rename_with(~paste0("Akbari_", .))
+    }
+    
+    if(!is.null(rep_capture)){
+      rep_capture <- rep_capture %>%
+        rename_with(~paste0("Capture_", .))
+    }
+    
+    combined <- bind_cols(
+      tibble(
+        CHR = disc$CHR,
+        Discovery_POS = disc$POS,
+        Discovery_Z = disc$weighted_z,
+        Discovery_P = disc$p_value
+      ),
+      rep_akbari,
+      rep_capture
+    )
+    
+    results[[length(results) + 1]] <- combined
+  }
+}
+
+final_table <- bind_rows(results)
+
+ 
+# 6. Optional summary column
+ 
+
+final_table <- final_table %>%
+  mutate(
+    Replicated_in_any = coalesce(Akbari_Replication_Significant, FALSE) |
+                        coalesce(Capture_Replication_Significant, FALSE)
+  )
+
+ 
+# 7. Save table
+ 
+
+
+final_table_clean <- final_table %>%
+  transmute(
+    CHR,
+    
+    # Discovery
+    Discovery_POS,
+    Discovery_Z,
+    Discovery_P,
+    
+        # Rep1 (formerly Capture)
+    Rep1_Z = Capture_Replication_Z,
+    Rep1_P = Capture_Replication_P,
+    Replicated_Rep1 = coalesce(Capture_Replication_Significant, FALSE),
+    
+    # Rep2 (formerly Akbari)
+    Rep2_Z = Akbari_Replication_Z,
+    Rep2_P = Akbari_Replication_P,
+    Replicated_Rep2 = coalesce(Akbari_Replication_Significant, FALSE)
+    
+  )
+
+write.table(final_table_clean,
+           "revision_Table_S6.txt",
+            quote = FALSE,
+            row.names = FALSE,
+            sep = "\t")
+```
+
+
+
+
 
