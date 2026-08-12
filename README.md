@@ -35,18 +35,15 @@ Uncompress data:
 gunzip final_figures_data.gz
 gunzip final_sup_figures_data.gz
 
-Generate figures:
-Rscript figures/main_text_figures_scripts.Rmd
-Rscript figures/supplemental_figures.Rmd
+Generate figures and tables:
+Rscript figures/LAI_figures.Rmd
 
 
 Repository structure
 
 figures:
   Scripts to generate all manuscript figures
-  - main_text_figures_scripts.Rmd
-  - supplemental_figures.Rmd
-  - Figure4C-E_tractsplot.py
+  - LAI_figures.Rmd
 
 run_LAI:
   Pipelines for running local ancestry inference on discovery data
@@ -131,6 +128,8 @@ The following software is required to reproduce full analyses:
 - TRACTOR
 - simpLAI
 - Mosaic
+- Gnomix
+- Recomb-Mix
 
 These must be installed separately and available in your environment.
 
