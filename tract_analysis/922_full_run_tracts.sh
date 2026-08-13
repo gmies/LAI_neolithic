@@ -12,10 +12,10 @@ SCRIPT_DIR="$BASE_DIR/scripts/TRACTS_plotting"
 FANCYPLOT_SCRIPT="/project/mathilab/gmies/neolithic_selection/allentoft_data/031825_rerun_filter_allen_LAI/selection_analysis/same_format_042125/tract_lengths/TRACTS/tracts-master/example/fancyplotting.py"
 
 # Define all target directories
-#DIRS=("ancestry_hmm" "ancestry_paths" "mosaic" "rfmix" "simplai" \
-#DIRS=("ancestry_hmm_phased" "ancestry_paths_phased" "mosaic_phased" "rfmix_phased" "simplai_phased")
+DIRS=("ancestry_hmm" "ancestry_paths" "mosaic" "rfmix" "simplai" "gnomix" "recombmix")
 
-DIRS=("mosaic_phased" "mosaic")
+#DIRS=("ancestry_hmm_phased" "ancestry_paths_phased" "mosaic_phased" "rfmix_phased" "simplai_phased")
+#DIRS=("mosaic_phased" "mosaic")
 
 # Loop through each directory
 for dir in "${DIRS[@]}"; do
