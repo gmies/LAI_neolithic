@@ -199,3 +199,18 @@ cp full_output_simpLAI.txt output/output_simplai.txt
 mkdir -p output
 Rscript ../../scripts/sliding_bins_cov_zscores.R 1 output/output_simplai.txt
 cd ../..
+
+
+
+#Run gnomix and recombmix seperately in each directory like so:
+#bsub < /project/mathilab/gmies/neolithic_selection/allentoft_data/031825_rerun_filter_allen_LAI/results/11_12_25_run_samplesizes/7v3/run_gnomix_recombmix_input.sh
+
+#bsub < /project/mathilab/gmies/neolithic_selection/allentoft_data/031825_rerun_filter_allen_LAI/results/11_12_25_run_samplesizes/7v7/run_gnomix.sh
+
+#bsub < /project/mathilab/gmies/neolithic_selection/allentoft_data/031825_rerun_filter_allen_LAI/results/11_12_25_run_samplesizes/7v7/rfmix_format/run_gnomix_format.sh 
+
+#bsub < /project/mathilab/gmies/neolithic_selection/allentoft_data/031825_rerun_filter_allen_LAI/results/11_12_25_run_samplesizes/7v7/run_recombmix.sh 
+
+#bsub < /project/mathilab/gmies/neolithic_selection/allentoft_data/031825_rerun_filter_allen_LAI/results/11_12_25_run_samplesizes/7v7/rfmix_format/run_recombmix_format.sh 
+
+
