@@ -14,8 +14,7 @@ This repository contains code to:
 - Generate all main and supplemental figures in the manuscript
 - Conduct replication and tract-based analyses
 
-Processed data required to reproduce all figures and key results are available on Zenodo:
-https://doi.org/10.5281/zenodo.19684580
+Processed data required to reproduce all figures and key results are available on Zenodo: https://zenodo.org/records/21921239
 
 
 Quick start (figure reproduction)
@@ -25,7 +24,7 @@ git clone https://github.com/gmies/LAI_neolithic.git
 cd LAI_neolithic
 
 Download Zenodo data:
-https://doi.org/10.5281/zenodo.19684580
+https://zenodo.org/records/21921239
 
 Place data as follows:
 - final_figures_data      → ../final_figures_data
@@ -48,6 +47,7 @@ figures:
 run_LAI:
   Pipelines for running local ancestry inference on discovery data
   - gen35_full_LAI_script.sh (7v48)
+  - run_gnomix_recombmix_input.sh, run_recombmix.sh, run_gnomix.sh
   - posterior filtering scripts
   - configurations for source sample sizes (7v1, 7v3, 7v7)
 
@@ -94,9 +94,10 @@ replication:
 Data availability
 
 Processed data for all figures and analyses are available on Zenodo:
-https://doi.org/10.5281/zenodo.19684580
+https://zenodo.org/records/21921239
 
 Raw genotype data are not included in this repository.
+1000 Genomes scripts follow from run_LAI scripts just input 1000 Genomes publicly available data in VCF format. 
 
 
 Software and dependencies
@@ -145,3 +146,4 @@ Local ancestry inference identifies robust evidence of selection in Neolithic Eu
 Contact
 
 For questions or issues, please open a GitHub issue or contact the authors.
+emails: georgia.mies@pennmedicine.upenn.edu (until Summer 2027), then try georgiasky99@yahoo.com or gmies@umich.edu
